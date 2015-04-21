@@ -1,0 +1,10 @@
+Package: ExpSpect
+Type: Package
+Title: Calculate protein specific biases in gene expression
+Version: 0.1
+Date: 2015-04-13
+Author: Eric J. Kort, Andrew Borgman
+Maintainer: Eric J. Kort <ericjkort@gmail.com>
+Depends: R (>= 3.1.0), rhdf5
+Description: Calculate protein specific biases in gene expression
+License: MIT
