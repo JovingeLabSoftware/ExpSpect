@@ -65,13 +65,14 @@ LINCS$set("public", "getData", function(rows, cols) {
   for(c in cols) {  
     cat(paste("Processing column ", count, " of ", length(cols), "\n", sep=""))
     count <- count+1
-    column <- h5read(self$dataFile, "/0/DATA/0", start=c(1,c), count=c(self$nrow,1))
+    column <- h5read(self$dataFile, "0/DATA/0/matrix", start=c(1,c), count=c(self$nrow,1))
     if(first) { # there is a better way to do this I just don't know what it is
-      result <- as.data.frame(column[[1]][rows]) 
+      result <- as.data.frame(column[rows]) 
       first = FALSE
     } else {  
-      result <- cbind(result, as.data.frame(column[[1]][rows]))                          
+      result <- cbind(result, as.data.frame(column[rows]))                          
     }
+    H5close()
   }
   colnames(result) <- self$colsByIndex(cols)
   rownames(result) <- self$getProbes()[rows]
@@ -79,25 +80,25 @@ LINCS$set("public", "getData", function(rows, cols) {
 })
 
 
-LINCS$set("public", "getMetaData", function(rows, cols) {
+LINCS$set("public", "getMetaData", function(rows, cols, verbose=FALSE) {
   first = TRUE;
   count = 1;
   nrow = length(private$getMetaRowNames())
-  print(nrow)
   for(c in cols) {  
-    cat(paste("Processing column ", count, " of ", length(cols), "\n", sep=""))
+    if(verbose)    cat(paste("Processing column ", count, " of ", length(cols), "\n", sep=""))
     count <- count+1
-    column <- h5read(self$infoFile, "/0/DATA/0/matrix", start=c(1,c), count=c(nrow,1))
+    column <- h5read(self$infoFile, "0/DATA/0/matrix", start=c(1,c), count=c(nrow,1))
+    print(column)
     if(first) { # there is a better way to do this I just don't know what it is
-      result <- as.data.frame(column[[1]][rows]) 
+      result <- as.data.frame(column[rows]) 
       first = FALSE
     } else {  
-      result <- cbind(result, as.data.frame(column[[1]][rows]))                          
+      result <- cbind(result, as.data.frame(column[rows]))                          
     }
     H5close()
   }
   colnames(result) <- self$colsByIndex(cols)
-  #rownames(result) <- private$getMetaRowNames()
+  rownames(result) <- private$getMetaRowNames()[rows]
   result
 })
 
