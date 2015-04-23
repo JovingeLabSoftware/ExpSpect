@@ -73,7 +73,11 @@ LINCS <- R6Class("LINCS",
                  )
 )
 
-
+# getProbes
+#
+# returns the (imputed) affymetrix HG U133 Plus 2.0 probeset ids from the 
+# gctx datafile.
+#
 LINCS$set("public", "getProbes", function() {
   ps <- gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))
   H5close()
@@ -81,7 +85,11 @@ LINCS$set("public", "getProbes", function() {
 })
 
 
-
+# 
+#
+#
+#
+#
 LINCS$set("public", "getData", function(rows, cols) {
   first = TRUE
   count = 1
@@ -109,6 +117,7 @@ LINCS$set("public", "getMetaData", function(rows=NA, cols=NA, verbose=FALSE) {
   nrow = length(private$getMetaRowNames())
   
   if(length(rows) == 1 && is.na(rows)) rows = 1:nrow
+
   if(length(cols) == 1 && is.na(cols)) cols = 1:self$ncol
   
   for(c in cols) {  
@@ -197,19 +206,18 @@ LINCS$set("public", "l1000ids", function() {
 # summarized <- apply(data, 2, function(x) { tapply(x, l1000$entrez_id[ix], mean) } )
 
 
-
-LINCSUTIL <- R6Class("LINCSUTIL",
-                     public = list(
-                       dataFile = NA,
-                       infoFile = NA,
-                       nrow = NA,
-                       ncol = NA,
-                       initialize = function() {
-                       }
-                     )
-)
-
-LINCSUTIL$set("public", "info2hdf5", function(infile="/mnt/lincs/inst.info", 
+# info2hdf5
+#
+# Utility to convert the inst.info tab delimited instance metadata file from LINCS to 
+# hdf5 format that directly mirrors the format of the expression data file, so by 
+# default the resulting file is give the 'gctx' suffice rather than 'hdf'.
+#
+# The resulting file is 1/10th the size and much faster to work with due to random 
+# access provided by hdf5.
+#
+# This only needs to be done once.
+#
+LINCS$set("public", "info2hdf5", function(infile="/mnt/lincs/inst.info", 
                                               outfile="/mnt/lincs/inst_info.gctx") {
   
   cat("Loading datafile (this will take a minute)\n")
@@ -247,9 +255,14 @@ LINCSUTIL$set("public", "info2hdf5", function(infile="/mnt/lincs/inst.info",
   self$h5WriteMatrix(outfile, t(info), "0/DATA/0/matrix")
 })
 
-# writes in column slabs to circumvent segfault with huge data set (>20M datapoints) 
-# dataset "name" must already have been created (i.e. by h5createDataset)
-LINCSUTIL$set("public", "h5WriteMatrix", function(hdffile, data, name, colchunk=250000) {
+
+# Workaround of the bug in rhdf5 (or possible libhdf5) that produces a segfaul when 
+# writing large data sets (> ~20M datapoints) to hdf5 file.  
+#
+# name: name of the dataset in the hdffile, which already have been created
+#       (i.e. by h5createDataset)
+#
+LINCS$set("private", "h5WriteMatrix", function(hdffile, data, name, colchunk=250000) {
   if(colchunk > ncol(data)) {
     colchunk = ncol(data)
   }  
@@ -263,4 +276,82 @@ LINCSUTIL$set("public", "h5WriteMatrix", function(hdffile, data, name, colchunk=
 })
 
 
+# cellInfo: method to retreve cell line metadata via LINCS web API
+#
+# By default returs the normal cell lines, but your own query can be provided. 
+# See echo http://api.lincscloud.org/a2/docs/cellinfo for details,
+#
+LINCS$set("public", "cellInfo", function(query=NA) {
+  if(is.na(query)) {
+    query <- '"cell_type":{"$regex":"[^-666|cancer]"}'
+  }
+  info <- getURL(paste('http://api.lincscloud.org/a2/cellinfo?q={', query, '}&user_key=lincsdemo', sep=""))
+  return(private$JSON2df(info))
+})
 
+
+
+# fdaDrugs: method to retreve perturbagens that are predominently clinical drugs
+#
+# This is a very rough approximation, likely with low sensitivity but high specificity
+LINCS$set("public", "fdaDrugs", function(query=NA) {
+  first = TRUE
+  for(i in 1:3) {
+    data <- getURL(paste('http://api.lincscloud.org/a2/pertinfo?q={"pert_type":"trt_cp"}',
+                         '&f={"pert_iname":1,"pert_id":1}',
+                         '&l=10000&sk=', (i-1)*10000, '&user_key=lincsdemo', sep=""))
+    #drugs <- JSON2df(data)
+    #View(drugs)
+    if(first) {
+      drugs <- private$JSON2df(data)      
+      first <- FALSE
+    } else {
+      drugs <- rbind(drugs, private$JSON2df(data))
+    }
+  }
+  drugs
+})
+
+
+# JSON2df: private utility method
+#
+# convert array of simple JSON objects to dataframe, ensuring that each column is accounted for 
+# in each element of the JSON array.
+#
+# json: the data sructure, which must be an array of anonmyous JSON objects, like this:
+#
+# [
+#   {
+#     one: "some data",
+#     two: "some more data"
+#   },
+#   {
+#     one: "another bit of data",
+#     two: "yet more",
+#     three: "and this element has a third member!"
+#   }
+# ]
+#              
+
+LINCS$set("private", "JSON2df", function(json) {
+  data <- fromJSON(json)
+  res <- character()
+  ids <- unique(unlist(lapply(data, names)))
+  for(i in 1:length(data)) {
+    row <- data[[i]]
+    res <- rbind(res, row[ids])
+  }
+  colnames(res) <- gsub("_", "", ids)
+  res[res %in% c('-666', 'NULL')] <- NA
+  as.data.frame(res)
+})
+
+# grab the data
+# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&f={"cell_id":1,"cell_lineage":1,"cell_type":1,"gender":1}&user_key=lincsdemo')
+# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&user_key=lincsdemo')
+# raw_data
+# 
+# unlist(fromJSON(raw_data))
+# final_data <- do.call(rbind, fromJSON(raw_data))
+# 
+# final_data
