@@ -309,7 +309,9 @@ LINCS$set("public", "fdaDrugs", function(query=NA) {
       drugs <- rbind(drugs, private$JSON2df(data))
     }
   }
-  drugs
+  data(fdadrugs)
+  ix <- which(drugs[,3] %in% fdadrugs)
+  drugs[ix,]
 })
 
 

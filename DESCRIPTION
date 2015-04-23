@@ -5,7 +5,7 @@ Version: 0.1
 Date: 2015-04-13
 Author: Eric J. Kort, Andrew Borgman
 Maintainer: Eric J. Kort <ericjkort@gmail.com>
-Depends:
+Depends: 
     R (>= 3.1.0),
     R6,
     rhdf5,
@@ -14,6 +14,8 @@ Depends:
     RJSONIO
 Description: Calculate protein specific biases in gene expression
 License: MIT
-Collate:
+Collate: 
     'ExpSpect.R'
     'LINCS.R'
+Suggests: knitr
+VignetteBuilder: knitr
