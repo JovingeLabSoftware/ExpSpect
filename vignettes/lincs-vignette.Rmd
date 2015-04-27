@@ -1,33 +1,71 @@
 ---
-title: "Vignette Title"
-author: "Vignette Author"
+title: "ExpSpect Analysis Example"
+author: "Eric J. Kort"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteIndexEntry{ExpSpect Analysis Example}
   %\VignetteEngine{knitr::rmarkdown}
   \usepackage[utf8]{inputenc}
 ---
 
-Vignettes are long form documentation commonly included in packages. Because they are part of the distribution of the package, they need to be as compact as possible. The `html_vignette` output type provides a custom style sheet (and tweaks some options) to ensure that the resulting html is as small as possible. The `html_vignette` format:
+## Analysis of LINCS data with the ExpSpect package
 
-- Never uses retina figures
-- Has a smaller default figure size
-- Uses a custom CSS stylesheet instead of the default Twitter Bootstrap style
+### Preparing your environment
 
-## Vignette Info
+In order to complete this analysis, the level 4 dataset should be obtained from the [lincs project](https://docs.google.com/forms/d/1j6Vb_s4FrDodxoS3IDZsHWoVNrOnKNQbqwbwcW2a208/viewform).  In addition, the ExpSpect package requires the following packages: `R6`, `rhdf5`, `hgu133plus2.db`, `RCurl`, `RJSONIO`.
 
-Note the various macros within the `vignette` setion of the metadata block above. These are required in order to instruct R how to build the vignette. Note that you should change the `title` field and the `\VignetteIndexEntry` to match the title of your vignette.
+The expression data matrix is large (~120GB), and may be obtained using the s3cmd command line tool on Linux-like systems:
 
-## Styles
+```
+# configure s3cmd with your keys
+s3cmd --configure
 
-The `html_vignette` template includes a basic CSS theme. To override this theme you can specify your own CSS in the document metadata as follows:
+# now get the data file.  takes 30-60 minutes with a fast data connection.
+s3cmd get  s3://data.lincscloud.org/l1000/level4/zspc_n1328098x22268.gctx
+s3cmd get  s3://data.lincscloud.org/l1000/metadata/inst.info
+```
+The instance metadata from LINCS is provided as tab delimited file (inst.info) which is unwieldy to work with in an R session due to it size.  Therefore, the first step is to convert this file to hdf5 format using a helper function provided by the ExpSpect package:
 
-    output: 
-      rmarkdown::html_vignette:
-        css: mystyles.css
+```{r, eval=TRUE}
+library(ExpSpect)
+# adjust path below as needed.
+lincs <- LINCS$new("/mnt/lincs/zspc_n1328098x22268.gctx")
 
-## Figures
+## perform the following after downloading the data.  Only needs to be done once.
+#lincs$info2hdf5("/mnt/lincs/inst.info", "/desired/path/to/inst_info.gctx")
+
+# now tell your lincs object where you saved the file just created
+lincs$setInfoFile("/mnt/lincs/inst_info.gctx")
+```
+
+Now we are ready to begin.
+
+### Feature reduction
+
+First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to normal cell lines.  
+
+```{r}
+normcells <- lincs$cellInfo() # fetches normals by default
+```
+
+The ExpSpect package provides a function to retrieve meta data from the info file.  However, for large contiguous reads (in this case, all columns for 1 row), it is much much faster to use th hdf5 call directly:
+
+```{r}
+cellids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(4,1), count=c(1,lincs$ncol))
+ixnorm <- which(cellids[1,] %in% normcells$cellid)
+```
+
+Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS perturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data.
+
+```{r}
+fdadrugs <- lincs$fdaDrugs()
+pertids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(2,1), count=c(1,lincs$ncol))[ixnorm]
+ixfda <- which(pertids %in% fdadrugs$pertid)
+datamatrix <- lincs$getData(1:100, ixnorm[ixfda])
+```
+
+## No User Serviceable Parts Below This Line
 
 The figure sizes have been customised so that you can easily put two images side-by-side. 
 
@@ -44,62 +82,8 @@ You can enable figure captions by `fig_caption: yes` in YAML:
 
 Then you can use the chunk option `fig.cap = "Your figure caption."` in **knitr**.
 
-## More Examples
-
-You can write math expressions, e.g. $Y = X\beta + \epsilon$, footnotes^[A footnote here.], and tables, e.g. using `knitr::kable()`.
-
-```{r, echo=FALSE, results='asis'}
-knitr::kable(head(mtcars, 10))
-```
 
 Also a quote using `>`:
 
 > "He who gives up [code] safety for [code] speed deserves neither."
 ([via](https://twitter.com/hadleywickham/status/504368538874703872))
-
-LINCS analysis Vignette.
-
-In order to complete this analysis, the level 4 dataset should be obtained from the LINCS project:
-
-https://docs.google.com/forms/d/1j6Vb_s4FrDodxoS3IDZsHWoVNrOnKNQbqwbwcW2a208/viewform
-
-The expression data matrix is large (~120GB), and may be obtained using the s3cmd command line tool on Linux-like systems:
-
-# configure s3cmd with your keys
-s3cmd --configure
-
-# now get the data file.  takes 30-60 minutes with a fast data connection.
-s3cmd get  s3://data.lincscloud.org/l1000/level4/zspc_n1328098x22268.gctx
-s3cmd get  s3://data.lincscloud.org/l1000/metadata/inst.info
-
-The ExpSpect package requires the following packages:
-
-install.packages(R6, rhdf5, hgu133plus2.db, RCurl, RJSONIO)
-
-The instance metadata from LINCS is provided as tab delimited file (inst.info) which is unwieldy to work with in an R session due to it size.  Therefore, the first step is to convert this file to hdf5 format using a helper function provided by the ExpSpect package:
-
-lincs <- LINCS$new("/path/to/zspc_n1328098x22268.gctx")
-lincs$info2hdf5("/path/to/inst.info", "/desired/path/to/inst_info.gctx")
-# now tell your lincs object where you saved the file just created
-lincs$setInfoFile("/path/to/inst_info.gctx")
-
-Now we are ready to extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to normal cell lines.  
-
-normcells <- lincs$cellInfo() # fetches normals by default
-
-The ExpSpect package provides a function to retrieve meta data from the info file.  However, for large contiguous reads (in this case, all columns for 1 row), it is much much faster to use th hdf5 call directly:
-
-cellids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(4,1), count=c(1,lincs$ncol))
-ixnorm <- which(cellids[1,] %in% normcells$cellid)
-
-Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  This is a fuzzy concept but can be approximated by searching for those perturbagens with pert_type of trt_cp (chemical compound) and has a common name as opposed to an alphanumeric code (i.e. pert_iname is comprised of lower case characters).
-
-fdadrugs <- lincs$fdaDrugs()
-pertids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(2,1), count=c(1,lincs$ncol))[ixnorm]
-ixfda <- which(pertids %in% fdadrugs$pertid)
-
-Now we can extract the datamatrix for these instances.
-
-lincs$getData()
-
-
