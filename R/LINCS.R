@@ -85,27 +85,10 @@ LINCS$set("public", "getProbes", function() {
 })
 
 
-# 
-#
-#
-#
-#
 LINCS$set("public", "getData", function(rows, cols) {
-  first = TRUE
-  count = 1
-  for(c in cols) {  
-    cat(paste("Processing column ", count, " of ", length(cols), "\n", sep=""))
-    count <- count+1
-    column <- h5read(self$dataFile, "0/DATA/0/matrix", start=c(1,c), count=c(self$nrow,1))
-    if(first) { # there is a better way to do this I just don't know what it is
-      result <- as.data.frame(column[rows]) 
-      first = FALSE
-    } else {  
-      result <- cbind(result, as.data.frame(column[rows]))                          
-    }
-    H5close()
-  }
-  colnames(result) <- self$colsByIndex(cols)
+  result <- h5read(self$dataFile, "0/DATA/0/matrix", index=list(rows,cols))
+  H5close()
+  colnames(result) <- self$colnamesByIndex(cols)
   rownames(result) <- self$getProbes()[rows]
   result
 })
@@ -114,28 +97,15 @@ LINCS$set("public", "getData", function(rows, cols) {
 LINCS$set("public", "getMetaData", function(rows=NA, cols=NA, verbose=FALSE) {
   first = TRUE;
   count = 1;
-  nrow = length(private$getMetaRowNames())
+  nrow = self$nrow
   
   if(length(rows) == 1 && is.na(rows)) rows = 1:nrow
 
   if(length(cols) == 1 && is.na(cols)) cols = 1:self$ncol
   
-  for(c in cols) {  
-    if(verbose) {
-      cat(paste("Processing column ", count, " of ", length(cols), "\n", sep=""))
-      count <- count+1      
-    }
-    
-    column <- h5read(self$infoFile, "0/DATA/0/matrix", start=c(1,c), count=c(nrow,1))
-    if(first) { # there is a better way to do this I just don't know what it is
-      result <- as.data.frame(column[rows]) 
-      first = FALSE
-    } else {  
-      result <- cbind(result, as.data.frame(column[rows]))                          
-    }
-    H5close()
-  }
-  colnames(result) <- self$colsByIndex(cols)
+  result <- h5read(self$infoFile, "0/DATA/0/matrix", index=list(rows,cols))
+  H5close()
+  colnames(result) <- self$colnamesByIndex(cols)
   rownames(result) <- private$getMetaRowNames()[rows]
   result
 })
@@ -148,21 +118,15 @@ LINCS$set("public", "rowsByProbe", function(probes) {
 
 
 
-LINCS$set("public", "colsByIndex", function(cols) {
-  result = numeric()
-  ncol = as.numeric(unlist(strsplit(unlist(h5ls(self$dataFile)[5])[4], " x ")))[2]
-  for(i in 1:length(cols)) {
-    name <- h5read(self$dataFile, "/0/META/COL", start=cols[i], count=1)
-    result <- c(result, name)
-    H5close()
-  }  
+LINCS$set("public", "colnamesByIndex", function(cols) {
+  result <- h5read(self$dataFile, "/0/META/COL/id", index=list(cols))
   result <- gsub(" ", "", result)
   result
 })
 
 
 
-LINCS$set("public", "colsById", function(ids) {
+LINCS$set("public", "colnamesById", function(ids) {
   result = numeric()
   # let's take this in manageable chunks...
   cat("Looking up columns in > 1 million columns of data...this will take a few seconds.\n")
@@ -177,20 +141,26 @@ LINCS$set("public", "colsById", function(ids) {
   result
 })
 
+LINCS$set("public", "l1000ProbeSets", function() {
+  return(self$l1000ids()$probeset)
+})
+
+LINCS$set("public", "l1000Rows", function() {
+  return(self$rowsByProbe(self$l1000ids()$probeset))
+})
 
 LINCS$set("public", "l1000ids", function() {
-  library(hgu133plus2.db)
+  #library(hgu133plus2.db)
   
   entrezids <- as.list(hgu133plus2ENTREZID)
-  l1000_md <- data("l1000Genes")
-  
-  entrezids_l1000 <- entrezids[which(entrezids %in% l1000_md$EntrezGeneID)]
-  ix <- match(entrezids_l1000, l1000_md$EntrezGeneID)
-  probesets_l1000 <- cbind(asdataframe(names(entrezids_l1000), stringsAsFactors = FALSE), asdataframe(unlist(entrezids_l1000), stringsAsFactors = FALSE), l1000_md[ix,])[,-5]
+  data(l1000Genes)
+  entrezids_l1000 <- entrezids[which(entrezids %in% l1000Genes$EntrezGeneID)]
+  ix <- match(entrezids_l1000, l1000Genes$EntrezGeneID)
+  probesets_l1000 <- cbind(as.data.frame(names(entrezids_l1000), stringsAsFactors = FALSE), as.data.frame(unlist(entrezids_l1000), stringsAsFactors = FALSE), l1000Genes[ix,])[,-5]
   
   # add row numbers from data matrix in gctx file for convenience
   probesets_l1000 <- cbind(match(probesets_l1000[,1], self$getProbes()), probesets_l1000);
-  ixna <- which(isna(probesets_l1000[,1]))
+  ixna <- which(is.na(probesets_l1000[,1]))
   probesets_l1000 <- probesets_l1000[-ixna,]  
   probesetx_l1000 <- probesets_l1000[-grep("_x_", probesets_l1000$probeset),]
   rownames(probesets_l1000) <- 1:nrow(probesets_l1000)
@@ -290,6 +260,11 @@ LINCS$set("public", "cellInfo", function(query=NA) {
 })
 
 
+
+LINCS$set("public", "summarizeGenes", function(datamatrix, FUN=mean) {  
+  eg <- unlist(as.list(hgu133plus2ENTREZID[rownames(datamatrix)]))
+  apply(datamatrix, 2, function(x){tapply(x, eg, FUN)})
+})
 
 # fdaDrugs: method to retreve perturbagens that are predominently clinical drugs
 #
