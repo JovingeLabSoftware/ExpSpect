@@ -262,7 +262,7 @@ LINCS$set("public", "cellInfo", function(query=NA) {
 
 
 LINCS$set("public", "summarizeGenes", function(datamatrix, FUN=mean) {  
-  eg <- unlist(as.list(hgu133plus2ENTREZID[rownames(datamatrix)]))
+  eg <- unlist(as.list(hgu133plus2ENTREZID)[rownames(datamatrix)])
   apply(datamatrix, 2, function(x){tapply(x, eg, FUN)})
 })
 

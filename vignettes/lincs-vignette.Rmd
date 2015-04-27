@@ -2,13 +2,12 @@
 title: "ExpSpect Analysis Example"
 author: "Eric J. Kort"
 date: "`r Sys.Date()`"
-output: rmarkdown::html_vignette
+output: pdf_document
 vignette: >
   %\VignetteIndexEntry{ExpSpect Analysis Example}
   %\VignetteEngine{knitr::rmarkdown}
   \usepackage[utf8]{inputenc}
 ---
-
 ## Analysis of LINCS data with the ExpSpect package
 
 ### Preparing your environment
@@ -27,13 +26,13 @@ s3cmd get  s3://data.lincscloud.org/l1000/metadata/inst.info
 ```
 The instance metadata from LINCS is provided as tab delimited file (inst.info) which is unwieldy to work with in an R session due to it size.  Therefore, the first step is to convert this file to hdf5 format using a helper function provided by the ExpSpect package:
 
-```{r, eval=TRUE}
+```{r, eval=FALSE}
 library(ExpSpect)
 # adjust path below as needed.
 lincs <- LINCS$new("/mnt/lincs/zspc_n1328098x22268.gctx")
 
-## perform the following after downloading the data.  Only needs to be done once.
-#lincs$info2hdf5("/mnt/lincs/inst.info", "/desired/path/to/inst_info.gctx")
+# Generate hdf5 version of info file.  Only needs to be done once.
+lincs$info2hdf5("/mnt/lincs/inst.info", "/desired/path/to/inst_info.gctx")
 
 # now tell your lincs object where you saved the file just created
 lincs$setInfoFile("/mnt/lincs/inst_info.gctx")
@@ -45,45 +44,42 @@ Now we are ready to begin.
 
 First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to normal cell lines.  
 
-```{r}
+```{r, eval=FALSE}
 normcells <- lincs$cellInfo() # fetches normals by default
 ```
 
-The ExpSpect package provides a function to retrieve meta data from the info file.  However, for large contiguous reads (in this case, all columns for 1 row), it is much much faster to use th hdf5 call directly:
+The ExpSpect package provides a function to retrieve meta data from the info file. Here we extract the cell line identifier for each instance:
 
-```{r}
-cellids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(4,1), count=c(1,lincs$ncol))
+```{r, eval=FALSE}
+cellids <- lincs$getMetaData(rows=4, cols=NA) 
 ixnorm <- which(cellids[1,] %in% normcells$cellid)
 ```
 
-Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS perturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data.
+Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Retrieving the data may take several minutes depending on size of the extracted data matrix.
 
-```{r}
+```{r, eval=FALSE}
 fdadrugs <- lincs$fdaDrugs()
-pertids <- h5read(lincs$infoFile, "0/DATA/0/matrix", start=c(2,1), count=c(1,lincs$ncol))[ixnorm]
+pertids <- lincs$getMetaData(rows=2, cols=ixnorm) 
 ixfda <- which(pertids %in% fdadrugs$pertid)
-datamatrix <- lincs$getData(1:100, ixnorm[ixfda])
+rows <- lincs$l1000Rows()
+
+# 1700x 14000 matrix ... this will take a few minutes...
+datamatrix <- lincs$getData(rows, ixnorm[ixfda])
 ```
 
-## No User Serviceable Parts Below This Line
+### Reannotation
 
-The figure sizes have been customised so that you can easily put two images side-by-side. 
+Although there are only roughly 980 landmark genes, the imputation that the LINCS project performs to reconstitute the entire genome from the landmark genes results in multiple probesets per entrez id in the level 4 dataset (even for the landmark genes), giving about 1700 rows of data for these 980 genes.  The resulting probeset ids are those corresponding to the Affymetrix HG U133 Plus 2.0 array. To facilitate comparison to other datasets from other platforms, it is useful to summarize this data down to a common gene identifier.  The ExpSpect package defines a utility function to summarize the data from probesets down to entrez id (as mapped by the hgu133plus2.db annotation package from Bioconductor).  The default summary method is `mean`, but you may supply an alternative summarization function if you wish.
 
-```{r, fig.show='hold'}
-plot(1:10)
-plot(10:1)
+```{r, eval=FALSE}
+# takes a couple of minutes
+datamatrix_entrez <- lincs$summarizeGenes(datamatrix, FUN=mean)
 ```
 
-You can enable figure captions by `fig_caption: yes` in YAML:
+Converting to rank space is a brute force method for normalizing data.  While throwing away alot of information, it also eliminates the effects of any sources of error that effect only the magnitude of the data, not its order.  (For example, if a particular lab technician systematically added twice the input RNA s/he was supposed to, converting the resulting data to ranks column wise will remove that effect).  In particular, gene signature analysis often relies on a KS type statistic that is concerned only with the position of signatures genes in an ordered list, not the measured magnitude of those genes.  Converting our data to rank space is simple enough:
 
-    output:
-      rmarkdown::html_vignette:
-        fig_caption: yes
+```{r, eval=FALSE}
+rankmatrix_entrez <- apply(datamatrix_entrez, 2, order, decreasing=TRUE)
+```
 
-Then you can use the chunk option `fig.cap = "Your figure caption."` in **knitr**.
-
-
-Also a quote using `>`:
-
-> "He who gives up [code] safety for [code] speed deserves neither."
-([via](https://twitter.com/hadleywickham/status/504368538874703872))
+This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).
