@@ -1,0 +1,44 @@
+---
+title: "ExpSpect Development with Docker"
+author: "Andrew Borgman"
+date: "`r Sys.Date()`"
+output: pdf_document
+vignette: >
+  %\VignetteIndexEntry{ExpSpect Analysis Example}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+## Overview of Approach
+
+We leverage the excellent work of the [`rocker-org`](https://github.com/rocker-org) team. 
+
+Developers will need to be on a machine with sufficient storage space (>120 GB) and have Docker [installed](https://docs.docker.com/installation/) installed.
+
+
+## AWS Configuration
+
+AWS has proven to be the easiest platform for working with LINCS data.
+
+Starting on a fresh Ubuntu spot instance with attached storage instance (we usually use 200 GB EBS). 
+
+The following commands were adopted from the [AWS docs](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-using-volumes.html) and show the basic workflow of mounting an attached EBS volume to `/data/` on our working instance. 
+
+```
+# see if we need to create file system + create it
+sudo file -s /dev/xvdf
+sudo mkfs -t ext4 /dev/xvdf
+
+# create mount point and mount
+sudo mkdir /data
+sudo mount /dev/xvdf /data
+
+# install docker
+wget -qO- https://get.docker.com/ | sh
+
+# run our container in daemon mode
+sudo docker run -d --name rstudio -v /data:/data rocker/rstudio
+```
+
+
+
