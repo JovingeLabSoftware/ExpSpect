@@ -222,7 +222,7 @@ LINCS$set("public", "info2hdf5", function(infile="/mnt/lincs/inst.info",
                   chunk=c(1, 20000), 
                   level=7, storage.mode = "character")
   
-  self$h5WriteMatrix(outfile, t(info), "0/DATA/0/matrix")
+  private$h5WriteMatrix(outfile, t(info), "0/DATA/0/matrix")
 })
 
 
