@@ -48,7 +48,7 @@ LINCS <- R6Class("LINCS",
                      if (!missing(infoFile)) {
                        self$infoFile <- infoFile         
                      } else {
-                       #self$setInfoFile('/mnt/lincs/inst_info.gctx')         
+                       self$setInfoFile('/mnt/lincs/inst_info.gctx')         
                      }
                    },
                    
@@ -64,16 +64,14 @@ LINCS <- R6Class("LINCS",
                    setDataFile = function(val) {
                      self$dataFile <- val
                      loc <- H5Fopen(self$dataFile)
-                     dr <- H5Dopen(loc, "0/DATA/0/matrix")
-                     ds <- H5Dget_space(dr)
-                     dim <- H5Sget_simple_extent_dims(ds)$size
+                     ds <- H5Dopen(loc, "0/DATA/0/matrix")
+                     dim <- H5Sget_simple_extent_dims(H5Dget_space(ds))$size
                      self$nrow = dim[1]
                      self$ncol = dim[2]
                      private$colset = 1:self$ncol
                      private$rowset = 1:self$nrow
-                     private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
                      H5close()
-                     
+                     private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]                     
                    }
                    
                  ),
