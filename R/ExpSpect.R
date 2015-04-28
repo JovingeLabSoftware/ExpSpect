@@ -23,16 +23,18 @@
 ExpSpect <- R6Class("ExpSpect",
   public = list(
     calcScores = function(exp, treated, untreated, lincs) {
-      treated <- apply(exps(exp)[,treated], 1, mean)
-      untreated <- apply(exps(exp)[,untreated], 1, mean)
-      if(sum(rownames(treated) %in% lincs$getGeneIds) > 0.5 * nrow(treated)) {
+      treated <- apply(exprs(exp)[,treated], 1, mean)
+      untreated <- apply(exprs(exp)[,untreated], 1, mean)
+      if(sum(names(treated) %in% lincs$getGeneIds()) < (0.5 * length(lincs$getGeneIds()))) {
         warning("Less than 50% of gene ids in expression set are present in lincs object.\nPossible gene id mismatch?\n")
       }
       exp_r <- treated/untreated
       ix <- match(lincs$getGeneIds(), rownames(treated))
       exp_r <- order(exp_r[ix], decreasing=TRUE)
       rankmatrix <- apply(lincs$data(), 2, order, decreasing=TRUE)
-      cor <- apply(rankmatrix, 2, function(x) { return(cor.test(x, exp_r)$statistic) })
+      cor <- apply(rankmatrix, 2, function(x) { return(cor.test(x, exp_r)$estimate) })
+      names(cor) <- lincs$metadata()['pert_id',]
+      cor
     }
   )
 )

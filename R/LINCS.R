@@ -74,6 +74,7 @@ LINCS <- R6Class("LINCS",
                      private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]                     
                    }
                    
+                   
                  ),
                  private = list(
                    getMetaRowNames = function() {
@@ -103,7 +104,7 @@ LINCS$set("public", "getGeneIds", function() {
 })
 
 LINCS$set("private", "getProbes", function() {
-  probes <- gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
+  probes <- gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))
   H5close()
   return(probes)
 })
@@ -112,7 +113,7 @@ LINCS$set("public", "setId", function(id=c('probeset', 'entrez')) {
     private$geneids = id;
     private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
     H5close()
-    if(geneids == 'entrez') {
+    if(private$geneids == 'entrez') {
       entrezids <- as.list(hgu133plus2ENTREZID)
       private$.rownames = unique(sort(unlist(entrezids[private$.rownames])))
     } 
@@ -164,7 +165,7 @@ LINCS$set("public", "data", function(rows) {
 
 LINCS$set("public", "metadata", function(rows) {  
   if(private$metadataIsStale) {
-    private$loadMetaData()
+    private$loadMetadata()
     private$metadataIsStale = FALSE;
   }
   
@@ -201,7 +202,7 @@ LINCS$set("private", "loadMetadata", function() {
 
 
 LINCS$set("public", "rowsByProbe", function(probes) {                      
-  ix <- which(self$getProbes() %in% probes)
+  ix <- which(private$getProbes() %in% probes)
   ix
 })
 
@@ -248,7 +249,7 @@ LINCS$set("public", "l1000ids", function() {
   probesets_l1000 <- cbind(as.data.frame(names(entrezids_l1000), stringsAsFactors = FALSE), as.data.frame(unlist(entrezids_l1000), stringsAsFactors = FALSE), l1000Genes[ix,])[,-5]
   
   # add row numbers from data matrix in gctx file for convenience
-  probesets_l1000 <- cbind(match(probesets_l1000[,1], self$getProbes()), probesets_l1000);
+  probesets_l1000 <- cbind(match(probesets_l1000[,1], private$getProbes()), probesets_l1000);
   ixna <- which(is.na(probesets_l1000[,1]))
   probesets_l1000 <- probesets_l1000[-ixna,]  
   probesetx_l1000 <- probesets_l1000[-grep("_x_", probesets_l1000$probeset),]
@@ -349,8 +350,14 @@ LINCS$set("public", "cellInfo", function(query=NA) {
 })
 
 # usage: lincs$filterInstances('cell_id', 'MCF7')
-LINCS$set("public", "filterInstances", function(field, values) {
-  print(paste("Querying currently selected dataset (", self$ncol, " columns) for values of interest.", sep=""))
+# set reset = TRUE to search all columns.  Otherwise only currently selected columns are queried.
+LINCS$set("public", "filterInstances", function(field, values, reset=FALSE) {
+  if(reset) {
+    self$setCols();     
+    print(paste("Querying entire dataset (", self$ncol, " columns) for values of interest.", sep=""))
+  } else {
+    print(paste("Querying currently selected dataset (", self$ncol, " columns) for values of interest.", sep=""))    
+  }
   private$loadMetadata()
   ix <- which(private$.metadata[field,] %in% values)
   self$setCols(private$colsset[ix])
