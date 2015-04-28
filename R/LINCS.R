@@ -165,6 +165,7 @@ LINCS$set("public", "data", function(rows) {
 
 LINCS$set("public", "metadata", function(rows) {  
   if(private$metadataIsStale) {
+    print("Refreshing metadata")
     private$loadMetadata()
     private$metadataIsStale = FALSE;
   }
@@ -360,7 +361,7 @@ LINCS$set("public", "filterInstances", function(field, values, reset=FALSE) {
   }
   private$loadMetadata()
   ix <- which(private$.metadata[field,] %in% values)
-  self$setCols(private$colsset[ix])
+  self$setCols(private$colset[ix])
   print(paste(length(ix), " columns identified and selected in data object."))
 })
 

@@ -82,4 +82,22 @@ Converting to rank space is a brute force method for normalizing data.  While th
 rankmatrix_entrez <- apply(datamatrix_entrez, 2, order, decreasing=TRUE)
 ```
 
-This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).
+This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).  An example follows;
+
+## Identifying drug signatures with ExpSpect
+
+
+```{r, eval=FALSE}
+norms <- lincs$cellInfo()$cellid
+LINCS$set("public", "filterInstances", function(field, values) {
+lincs$filterInstances('cell_id', unique(norms)) 
+data(fdadrugs)
+lincs$filterInstances('pert_id', fdadrugs$pert_id) 
+drugs <- fdadrugs[match(lincs$metadata()['pert_id',], fdadrugs$pert_id), 2]
+GSE39339 <- getGEO('GSE39339', destdir="/mnt/lincs/GEO")[[1]][,1:8]
+
+expct <- ExpSpect$new()
+
+cor <- expct$calcScores(GSE39339, c(5:8), c(1:4), lincs)
+
+```
