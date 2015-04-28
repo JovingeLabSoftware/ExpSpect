@@ -36,6 +36,7 @@ LINCS <- R6Class("LINCS",
                    infoFile = NA,
                    nrow = NA,
                    ncol = NA,
+                   metadataRows = NA,
                    
                    initialize = function(dataFile, infoFile) {
                      if (!missing(dataFile)) {
@@ -47,29 +48,49 @@ LINCS <- R6Class("LINCS",
                      if (!missing(infoFile)) {
                        self$infoFile <- infoFile         
                      } else {
-                       self$infoFile <- '/mnt/lincs/inst_info.gctx'
+                       #self$setInfoFile('/mnt/lincs/inst_info.gctx')         
                      }
                    },
                    
                    setInfoFile = function(val) {
                      self$infoFile <- val
+                     loc <- H5Fopen(self$infoFile)
+                     ds <- H5Dopen(loc, "0/DATA/0/matrix")
+                     dim <- H5Sget_simple_extent_dims(H5Dget_space(ds))$size
+                     self$metadataRows = dim[1]
+                     H5close()
                    },
                    
                    setDataFile = function(val) {
                      self$dataFile <- val
                      loc <- H5Fopen(self$dataFile)
-                     ds <- H5Dopen(loc, "0/DATA/0/matrix")
-                     dim <- H5Sget_simple_extent_dims(H5Dget_space(ds))$size
-                     H5close()
+                     dr <- H5Dopen(loc, "0/DATA/0/matrix")
+                     ds <- H5Dget_space(dr)
+                     dim <- H5Sget_simple_extent_dims(ds)$size
                      self$nrow = dim[1]
                      self$ncol = dim[2]
+                     private$colset = 1:self$ncol
+                     private$rowset = 1:self$nrow
+                     private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
+                     H5close()
+                     
                    }
                    
                  ),
                  private = list(
                    getMetaRowNames = function() {
-                     h5read(self$infoFile, "/0/META/ROW")[[1]]
-                   }
+                     rn <- h5read(self$infoFile, "/0/META/ROW")[[1]]
+                     H5close()
+                     rn
+                   },
+                   rowset = NA,
+                   colset = NA,
+                   .data = NULL,
+                   .metadata = NULL,    
+                   .rownames = NULL,
+                   geneids = 'probeset',
+                   dataIsStale = TRUE,
+                   metadataIsStale = TRUE
                  )
 )
 
@@ -78,36 +99,106 @@ LINCS <- R6Class("LINCS",
 # returns the (imputed) affymetrix HG U133 Plus 2.0 probeset ids from the 
 # gctx datafile.
 #
-LINCS$set("public", "getProbes", function() {
-  ps <- gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))
-  H5close()
+LINCS$set("public", "getGeneIds", function() {
+  return(private$.rownames)
   ps
 })
 
-
-LINCS$set("public", "getData", function(rows, cols) {
-  result <- h5read(self$dataFile, "0/DATA/0/matrix", index=list(rows,cols))
+LINCS$set("private", "getProbes", function() {
+  probes <- gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
   H5close()
-  colnames(result) <- self$colnamesByIndex(cols)
-  rownames(result) <- self$getProbes()[rows]
-  result
+  return(probes)
+})
+
+LINCS$set("public", "setId", function(id=c('probeset', 'entrez')) {
+    private$geneids = id;
+    private$.rownames = gsub(" ", "", h5read(self$dataFile, "/0/META/ROW/id"))[private$rowset]
+    H5close()
+    if(geneids == 'entrez') {
+      entrezids <- as.list(hgu133plus2ENTREZID)
+      private$.rownames = unique(sort(unlist(entrezids[private$.rownames])))
+    } 
+    private$dataIsStale = TRUE;    
 })
 
 
-LINCS$set("public", "getMetaData", function(rows=NA, cols=NA, verbose=FALSE) {
-  first = TRUE;
-  count = 1;
-  nrow = self$nrow
-  
-  if(length(rows) == 1 && is.na(rows)) rows = 1:nrow
+LINCS$set("public", "setCols", function(cols=NA) {
+  if(length(cols)==1 && is.na(cols)) {
+    loc <- H5Fopen(self$dataFile)
+    ds <- H5Dopen(loc, "0/DATA/0/matrix")
+    dim <- H5Sget_simple_extent_dims(H5Dget_space(ds))$size
+    cols = 1:dim[2]
+    H5close()
+  }
+  private$colset = cols
+  self$ncol = length(cols)
+  private$dataIsStale = TRUE;
+  private$metadataIsStale = TRUE;
+})
 
-  if(length(cols) == 1 && is.na(cols)) cols = 1:self$ncol
+LINCS$set("public", "setRows", function(rows=NA) {
+  if(length(rows)==1 && is.na(rows)) {
+    loc <- H5Fopen(self$dataFile)
+    ds <- H5Dopen(loc, "0/DATA/0/matrix")
+    dim <- H5Sget_simple_extent_dims(H5Dget_space(ds))$size
+    rows = 1:dim[1]
+    H5close()
+  }
+  private$rowset = rows
+  self$nrow = length(rows)
+  self$setId(private$geneids) # refresh rownames
+  private$dataIsStale = TRUE;
+  private$metadataIsStale = TRUE;
+})
+
+LINCS$set("public", "data", function(rows) {
+  if(private$dataIsStale) {
+    private$loadData()
+    private$dataIsStale = FALSE;
+  }
+  if(private$metadataIsStale) {
+    private$loadMetadata()
+    private$metadataIsStale = FALSE;
+  }
+  return(private$.data)
+})
+
+
+LINCS$set("public", "metadata", function(rows) {  
+  if(private$metadataIsStale) {
+    private$loadMetaData()
+    private$metadataIsStale = FALSE;
+  }
   
-  result <- h5read(self$infoFile, "0/DATA/0/matrix", index=list(rows,cols))
+  return(private$.metadata)
+})
+
+
+LINCS$set("private", "loadData", function(verbose=TRUE) {
+  rows = private$rowset
+  cols = private$colset
+  print("Loading data from file into memory, this may take a few minutes")
+  private$.data <- h5read(self$dataFile, "0/DATA/0/matrix", index=list(rows,cols))
   H5close()
-  colnames(result) <- self$colnamesByIndex(cols)
-  rownames(result) <- private$getMetaRowNames()[rows]
-  result
+  colnames(private$.data) <- self$colnamesByIndex(cols)
+  if(private$geneids == 'entrez') {
+    print("Summarizing data to entrez gene id, using mean() as summary method")
+    ids = as.list(hgu133plus2ENTREZID)
+    rownames <- unlist(ids[private$getProbes()[rows]])
+    private$.data <- apply(private$.data, 2, function(x) { tapply(x, rownames, mean)})
+    self$nrow = nrow(private$.data)
+  } else {
+    rownames(private$.data) <- private$getProbes()[rows]    
+  }
+})
+
+LINCS$set("private", "loadMetadata", function() {
+  cols = private$colset
+  rows = self$metadataRows
+  private$.metadata <- h5read(self$infoFile, "0/DATA/0/matrix", index=list(1:rows, cols))
+  H5close()
+  colnames(private$.metadata) <- self$colnamesByIndex(cols)
+  rownames(private$.metadata) <- private$getMetaRowNames()
 })
 
 
@@ -259,6 +350,14 @@ LINCS$set("public", "cellInfo", function(query=NA) {
   return(private$JSON2df(info))
 })
 
+# usage: lincs$filterInstances('cell_id', 'MCF7')
+LINCS$set("public", "filterInstances", function(field, values) {
+  print(paste("Querying currently selected dataset (", self$ncol, " columns) for values of interest.", sep=""))
+  private$loadMetadata()
+  ix <- which(private$.metadata[field,] %in% values)
+  self$setCols(private$colsset[ix])
+  print(paste(length(ix), " columns identified and selected in data object."))
+})
 
 
 LINCS$set("public", "summarizeGenes", function(datamatrix, FUN=mean) {  

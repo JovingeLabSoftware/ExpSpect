@@ -1,22 +1,39 @@
-#' ExpSpect: A package for gene-expression based 'spectrometry'
-#'
-#' The ExpSpect package facilitates deconvolution of gene expression 
-#' data to identify perturbations related to specific gene pathways
-#' or druggable targets.  Used in the context of gene expression 
-#' profiling of cells treated with some unknown material of interest
-#' (e.g. serum from patients with unknown environmental exposures), 
-#' such analysis is analagous to tandem mass spec proteomics--excpet 
-#' that rather than a spectrometer, gene expression is used together 
-#' with libraries of expression signatures (such as LINCS) to 
-#' deconvolute the composition of the material.
+#' ExpSpect class
 #' 
-#' We are in no way affiliated with the LINCS project.  This package
-#' does not provide LINCS data, which can only be obtained with 
-#' permission from the LINCS project.  Once you have access, downloading the data is straightforward
-#' (and illustrated in a soon to be release vignette for this package).
-#' While not providing the data, this package \strong{does} provide 
-#' tools that greatly facilitate working with these large data files
+#' @docType class
+#' @importFrom R6 R6Class
+#' @export
+#' @description A class to perform expression based 'spectrometry'.  
+#'
+#' @format \code{\link{ExpSpect}} class generator
+#'
+#' @usage \code{exps = ExpSpect$new()}
+#'
+#'
+#' @section Methods:
+#' \describe{
+#'   \item{\code{getProbes()}}{Returns a vector of 
+#'       \href{http://www.bioconductor.org/packages/release/data/annotation/html/hgu133plus2.db.html}{HG
+#'        U133 Plus 2.0} probesets for which data has been imputed from the 978
+#'        landmark genes measured directly on the luminex bead arrays by the LINCS }
+#' }
+#'
+#' @keywords data
+#' 
+ExpSpect <- R6Class("ExpSpect",
+  public = list(
+    calcScores = function(exp, treated, untreated, lincs) {
+      treated <- apply(exps(exp)[,treated], 1, mean)
+      untreated <- apply(exps(exp)[,untreated], 1, mean)
+      if(sum(rownames(treated) %in% lincs$getGeneIds) > 0.5 * nrow(treated)) {
+        warning("Less than 50% of gene ids in expression set are present in lincs object.\nPossible gene id mismatch?\n")
+      }
+      exp_r <- treated/untreated
+      ix <- match(lincs$getGeneIds(), rownames(treated))
+      exp_r <- order(exp_r[ix], decreasing=TRUE)
+      rankmatrix <- apply(lincs$data(), 2, order, decreasing=TRUE)
+      cor <- apply(rankmatrix, 2, function(x) { return(cor.test(x, exp_r)$statistic) })
+    }
+  )
+)
 
-#' @docType package
-#' @name ExpSpect
-NULL
