@@ -30,6 +30,7 @@
 #'
 #' @keywords data
 #' 
+#' 
 LINCS <- R6Class("LINCS",
                  public = list(
                    dataFile = NA,
@@ -121,7 +122,7 @@ LINCS$set("public", "setId", function(id=c('probeset', 'entrez')) {
 })
 
 
-LINCS$set("public", "setCols", function(cols=NA) {
+LINCS$set("public", "setCols", function(cols=NA, reset=FALSE) {
   if(length(cols)==1 && is.na(cols)) {
     loc <- H5Fopen(self$dataFile)
     ds <- H5Dopen(loc, "0/DATA/0/matrix")
@@ -129,13 +130,17 @@ LINCS$set("public", "setCols", function(cols=NA) {
     cols = 1:dim[2]
     H5close()
   }
-  private$colset = cols
+  if(length(private$colset) > 1 && !reset) {
+    private$colset = private$colset[cols]    
+  } else {
+    private$colset = cols        
+  }
   self$ncol = length(cols)
   private$dataIsStale = TRUE;
   private$metadataIsStale = TRUE;
 })
 
-LINCS$set("public", "setRows", function(rows=NA) {
+LINCS$set("public", "setRows", function(rows=NA, reset=FALSE) {
   if(length(rows)==1 && is.na(rows)) {
     loc <- H5Fopen(self$dataFile)
     ds <- H5Dopen(loc, "0/DATA/0/matrix")
@@ -143,10 +148,15 @@ LINCS$set("public", "setRows", function(rows=NA) {
     rows = 1:dim[1]
     H5close()
   }
-  private$rowset = rows
+  if(length(private$rowset) > 1 && !reset) {
+    private$rowset = private$rowset[rows]    
+  } else {
+    private$rowset = rows        
+  }
   self$nrow = length(rows)
   self$setId(private$geneids) # refresh rownames
   private$dataIsStale = TRUE;
+  print(private$rowset)
   private$metadataIsStale = TRUE;
 })
 
@@ -170,7 +180,7 @@ LINCS$set("public", "metadata", function(rows) {
     private$metadataIsStale = FALSE;
   }
   
-  return(private$.metadata)
+  return(private$.metadata[rows,])
 })
 
 
@@ -390,7 +400,7 @@ LINCS$set("public", "fdaDrugs", function(query=NA) {
     }
   }
   data(fdadrugs)
-  ix <- which(drugs[,3] %in% fdadrugs)
+  ix <- which(drugs$pertid %in% fdadrugs$pert_id)
   drugs[ix,]
 })
 
