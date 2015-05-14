@@ -51,20 +51,23 @@ normcells <- lincs$cellInfo() # fetches normals by default
 The ExpSpect package provides a function to retrieve meta data from the info file. Here we extract the cell line identifier for each instance:
 
 ```{r, eval=FALSE}
-cellids <- lincs$getMetaData(rows=4, cols=NA) 
-ixnorm <- which(cellids[1,] %in% normcells$cellid)
+cellids <- lincs$metadata(rows=4) 
+ixnorm <- which(cellids %in% normcells$cellid)
+lincs$setCols(ixnorm)
 ```
 
 Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Retrieving the data may take several minutes depending on size of the extracted data matrix.
 
 ```{r, eval=FALSE}
 fdadrugs <- lincs$fdaDrugs()
-pertids <- lincs$getMetaData(rows=2, cols=ixnorm) 
+pertids <- lincs$metadata(rows=2) 
 ixfda <- which(pertids %in% fdadrugs$pertid)
+lincs$setCols(ixfda)
 rows <- lincs$l1000Rows()
+lincs$setRows(rows)
 
 # 1700x 14000 matrix ... this will take a few minutes...
-datamatrix <- lincs$getData(rows, ixnorm[ixfda])
+datamatrix <- lincs$data()
 ```
 
 ### Reannotation
