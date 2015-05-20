@@ -39,3 +39,15 @@ ExpSpect <- R6Class("ExpSpect",
   )
 )
 
+ExpSpect$set("public", "excos", function(treatment, condition, ngenes=c(100,100,100,100)) {
+#  XSet=(UpInDisease∪DownInDisease)∩(ChangedByCompound)
+  rank_tr <- order(treatment, decreasing=TRUE)
+  rank_cnd <- order(condition, decreasing=TRUE)
+  gene_tr <- names(treatment)[c(rank_tr[1:ngenes[1]], rank_tr[(length(treatment)-ngenes[2]):length(treatment)])]
+  gene_cnd <- names(condition)[c(rank_cnd[1:ngenes[3]], rank_cnd[(length(condition)-ngenes[4]):length(condition)])]
+  xset <- gene_tr[which(gene_tr %in% gene_cnd)]
+  if(length(xset) == 0) {
+    stop("No common genes found between gene sets")
+  }
+})
+
