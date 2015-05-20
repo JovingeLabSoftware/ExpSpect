@@ -40,7 +40,7 @@ lincs$setInfoFile("/mnt/lincs/inst_info.gctx")
 
 Now we are ready to begin.
 
-### Feature reduction
+### Feature reductions
 
 First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to normal cell lines.  
 
@@ -53,7 +53,7 @@ The ExpSpect package provides a function to retrieve meta data from the info fil
 ```{r, eval=FALSE}
 cellids <- lincs$metadata(rows=4) 
 ixnorm <- which(cellids %in% normcells$cellid)
-lincs$setCols(ixnorm)
+lincs$setCols(ixnorm, reset=TRUE)
 ```
 
 Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Retrieving the data may take several minutes depending on size of the extracted data matrix.

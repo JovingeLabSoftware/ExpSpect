@@ -251,8 +251,7 @@ LINCS$set("public", "l1000Rows", function() {
 
 LINCS$set("public", "l1000ids", function() {
   #library(hgu133plus2.db)
-  
-#   entrezids <- as.list(hgu133plus2ENTREZID)
+  entrezids <- as.list(hgu133plus2ENTREZID)
   data(l1000Genes)
   entrezids_l1000 <- entrezids[which(entrezids %in% l1000Genes$EntrezGeneID)]
   ix <- match(entrezids_l1000, l1000Genes$EntrezGeneID)
