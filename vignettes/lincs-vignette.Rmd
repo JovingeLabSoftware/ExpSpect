@@ -42,37 +42,40 @@ Now we are ready to begin.
 
 ### Feature reductions
 
-First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to normal cell lines.  
+First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to a single cell line.  
 
 ```{r, eval=FALSE}
-normcells <- lincs$cellInfo() # fetches normals by default
+ha1e <- lincs$cellInfo('"cell_id":"HA1E"') 
+
 ```
 
 The ExpSpect package provides a function to retrieve meta data from the info file. Here we extract the cell line identifier for each instance:
 
 ```{r, eval=FALSE}
 cellids <- lincs$metadata(rows=4) 
-ixnorm <- which(cellids %in% normcells$cellid)
+ixnorm <- which(cellids %in% ha1e$cellid)
 lincs$setCols(ixnorm, reset=TRUE)
 ```
 
-Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Retrieving the data may take several minutes depending on size of the extracted data matrix.
+Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Loading the data may take several minutes depending on size of the extracted data matrix.
 
 ```{r, eval=FALSE}
 fdadrugs <- lincs$fdaDrugs()
-pertids <- lincs$metadata(rows=2) 
+pertids <- lincs$metadata(rows=2)
 ixfda <- which(pertids %in% fdadrugs$pertid)
 lincs$setCols(ixfda)
 rows <- lincs$l1000Rows()
 lincs$setRows(rows)
 
-# 1700x 14000 matrix ... this will take a few minutes...
+# 1778 x 6208 matrix ... this will take a few minutes...
 datamatrix <- lincs$data()
 ```
 
 ### Reannotation
 
 Although there are only roughly 980 landmark genes, the imputation that the LINCS project performs to reconstitute the entire genome from the landmark genes results in multiple probesets per entrez id in the level 4 dataset (even for the landmark genes), giving about 1700 rows of data for these 980 genes.  The resulting probeset ids are those corresponding to the Affymetrix HG U133 Plus 2.0 array. To facilitate comparison to other datasets from other platforms, it is useful to summarize this data down to a common gene identifier.  The ExpSpect package defines a utility function to summarize the data from probesets down to entrez id (as mapped by the hgu133plus2.db annotation package from Bioconductor).  The default summary method is `mean`, but you may supply an alternative summarization function if you wish.
+
+This step is not necessary if you are going to be interrogating this data with gene expression data that also uses Affymetrix HG U133 Plus 2.0 probeset ids as the gene identifier (such as preprocessed data from GEO using that platform). 
 
 ```{r, eval=FALSE}
 # takes a couple of minutes
@@ -85,22 +88,19 @@ Converting to rank space is a brute force method for normalizing data.  While th
 rankmatrix_entrez <- apply(datamatrix_entrez, 2, order, decreasing=TRUE)
 ```
 
-This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).  An example follows;
+This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).  
+
+Next we will give an example of calculating enrichment scores based on the data we extracted above.  In this example, we will be comparing the imputed LINCS fold changes with pre-processed data from GEO.  The data we will be using was produced using the Affymetrix HG U133 Plus 2.0 arrays (GPL570), so we do not need to summarize to a different common gene id.  Instead we can use the datamatrix object from above directly (skipping the summarizeGenes step). NOTE: This example requires the GEOquery package from Bioconductor to fetch gene expression data from GEO).
 
 ## Identifying drug signatures with ExpSpect
 
 
 ```{r, eval=FALSE}
-norms <- lincs$cellInfo()$cellid
-LINCS$set("public", "filterInstances", function(field, values) {
-lincs$filterInstances('cell_id', unique(norms)) 
-data(fdadrugs)
-lincs$filterInstances('pert_id', fdadrugs$pert_id) 
-drugs <- fdadrugs[match(lincs$metadata()['pert_id',], fdadrugs$pert_id), 2]
-GSE39339 <- getGEO('GSE39339', destdir="/mnt/lincs/GEO")[[1]][,1:8]
-
+library(GEOquery)
+GSE39339 <- getGEO('GSE39339', destdir="/mnt/lincs/GEO")
+# grab the expression data for the samples of interest
+GSE39339 <- exprs(GSE39339[[1]])[,1:8]
 expct <- ExpSpect$new()
-
-cor <- expct$calcScores(GSE39339, c(5:8), c(1:4), lincs)
+cor <- expct$calcScores(lincs, GSE39339[,5:8], GSE39339[,1:4], 'excos')
 
 ```

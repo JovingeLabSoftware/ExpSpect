@@ -38,6 +38,7 @@ LINCS <- R6Class("LINCS",
                    nrow = NA,
                    ncol = NA,
                    metadataRows = NA,
+                   accesskey = 'lincsdemo',
                    
                    initialize = function(dataFile, infoFile) {
                      if (!missing(dataFile)) {
@@ -189,6 +190,7 @@ LINCS$set("private", "loadData", function(verbose=TRUE) {
   print("Loading data from file into memory, this may take a few minutes")
   private$.data <- h5read(self$dataFile, "0/DATA/0/matrix", index=list(rows,cols))
   H5close()
+
   colnames(private$.data) <- self$colnamesByIndex(cols)
   if(private$geneids == 'entrez') {
     print("Summarizing data to entrez gene id, using mean() as summary method")
@@ -250,7 +252,7 @@ LINCS$set("public", "l1000Rows", function() {
 })
 
 LINCS$set("public", "l1000ids", function() {
-  #library(hgu133plus2.db)
+  library(hgu133plus2.db) # if I do not do this i get 'Error in as.list.default(hgu133plus2ENTREZID) :' 
   entrezids <- as.list(hgu133plus2ENTREZID)
   data(l1000Genes)
   entrezids_l1000 <- entrezids[which(entrezids %in% l1000Genes$EntrezGeneID)]
@@ -267,8 +269,8 @@ LINCS$set("public", "l1000ids", function() {
   probesetx_l1000 <- probesets_l1000[-grep("_x_", probesets_l1000$probeset),]
   rownames(probesets_l1000) <- 1:nrow(probesets_l1000)  
   probesets_l1000
-  
 })
+
 
 ### summarize
 # ix <- match(rownames(data), l1000$probeset)
@@ -354,7 +356,8 @@ LINCS$set("public", "cellInfo", function(query=NA) {
   if(is.na(query)) {
     query <- '"cell_type":{"$regex":"[^-666|cancer]"}'
   }
-  info <- getURL(paste('http://api.lincscloud.org/a2/cellinfo?q={', query, '}&user_key=lincsdemo', sep=""))
+  
+  info <- getURL(paste('http://api.lincscloud.org/a2/cellinfo?q={', query, '}&user_key=', self$accesskey, sep=""))
   return(private$JSON2df(info))
 })
 
@@ -387,7 +390,7 @@ LINCS$set("public", "fdaDrugs", function(query=NA) {
   for(i in 1:3) {
     data <- getURL(paste('http://api.lincscloud.org/a2/pertinfo?q={"pert_type":"trt_cp"}',
                          '&f={"pert_iname":1,"pert_id":1}',
-                         '&l=10000&sk=', (i-1)*10000, '&user_key=lincsdemo', sep=""))
+                         '&l=10000&sk=', (i-1)*10000, '&user_key=', self$accesskey, sep=""))
     #drugs <- JSON2df(data)
     #View(drugs)
     if(first) {
@@ -437,8 +440,8 @@ LINCS$set("private", "JSON2df", function(json) {
 })
 
 # grab the data
-# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&f={"cell_id":1,"cell_lineage":1,"cell_type":1,"gender":1}&user_key=lincsdemo')
-# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&user_key=lincsdemo')
+# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&f={"cell_id":1,"cell_lineage":1,"cell_type":1,"gender":1}&user_key=self$accesskey')
+# raw_data <- getURL('http://api.lincscloud.org/a2/cellinfo?q={"cell_type":{"$regex":"[^-666|cancer]"}}&user_key=self$accesskey')
 # raw_data
 # 
 # unlist(fromJSON(raw_data))

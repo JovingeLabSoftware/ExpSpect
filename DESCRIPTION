@@ -11,11 +11,13 @@ Depends:
     rhdf5,
     hgu133plus2.db,
     RCurl,
+    AnnotationDbi,
     RJSONIO
 Description: Calculate protein specific biases in gene expression
 License: MIT
 Collate: 
     'ExpSpect.R'
     'LINCS.R'
-Suggests: knitr
+Suggests: knitr,
+    testthat
 VignetteBuilder: knitr
