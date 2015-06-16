@@ -120,7 +120,7 @@ ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, re
       ks_u = -b_u
     }
     
-    V_d <- sort(which(xx %in% down))
+    V_d <- which(xx %in% down)
     a_d  = max(j_d/t_d - V_d / n)
     b_d  = max(V_d / n - (j_d - 1) / t_d)
     if (a_d > b_d) {
