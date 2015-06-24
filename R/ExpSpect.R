@@ -30,27 +30,72 @@
 #' 
 ExpSpect <- R6Class("ExpSpect",
   public = list(
-    calcScores = function(data, treated, untreated, method=c('cmap', 'excos'), normalize=TRUE, ...) {
-      
-      if(normalize) {
-        data <- (data - mean(data)) / sd(data)
-        sigs <- (data - mean(data)) / sd(data)
-      }
+    calcScores = function(data, treated, untreated, method=c('cmap', 'excos', 'excount'), ...) {
       treated <- apply(treated, 1, mean)
       untreated <- apply(untreated, 1, mean)
-      exp_r <- treated/untreated
-      if(normalize) {
-        exp_r <- (exp_r - mean(exp_r)) / sd(exp_r)
-      }
-       cl <- call(paste('self[["', method, '"]](x=data, y=exp_r, normalize=normalize, ...)', sep=""))
-       eval(parse(text=cl))
+      treated <- (treated - mean(treated))/sd(treated)
+      untreated <- (untreated - mean(untreated))/sd(untreated)
+
+      exp_r <- treated-untreated
+      exp_r <- (exp_r - mean(exp_r)) / sd(exp_r)
+      cl <- call(paste('self[["', method, '"]](x=data, y=exp_r, ...)', sep=""))
+      eval(parse(text=cl))
+     },
+     permScores = function(x, y, method=c('cmap', 'excos', 'excount'), sample=0.2, i=100) {
+       scores <- numeric();
+       if(sample > 0.5) {
+         warning("sample must be <= 0.5.  Using 0.5.")
+       }
+       smp <- floor(sample * ncol(y))
+       for(i in 1:i) {
+        print(i)
+        s <- sample(1:ncol(y), ncol(y))
+        treated <- s[1:smp]
+        untreated <- s[(smp+1):(2*smp)]
+        data <- data[sample(1:nrow(data), nrow(data)),]
+        scores <- rbind(scores, self$calcScores(x, data[,treated], data[,untreated], method)$scores)
+      } 
+      scores
      }
+    
   )
 )
 
+ExpSpect$set("public", "excount", function(x, y, n = 100
+                                           ) {
+  # coerce to numeric just in case
+  y <- y[which(names(y) %in% rownames(x))]
+  dm <- matrix(as.numeric(x), ncol=ncol(x))
+  colnames(dm) <- colnames(x)
+  rownames(dm) <- rownames(x)
+  data <- dm
+  y.nm <- names(y)
+  y <- as.numeric(y)
+  names(y) <- y.nm
+  
+  #if(normalize) {
+  #  y <- (y-mean(y))/sd(y)
+  #  data <- (data-mean(data))/sd(data)
+  #}  
+  # identify signature genes
+  up <- names(y)[which(rank(y) > (length(y)-n))]
+  up <- up[which(up %in% rownames(data))]
+  down <- names(y)[which(rank(y) < n)]
+  down <- down[which(down %in% rownames(data))]
+  
+  # calculate the 'extreme count'
+  f <- function(x) {
+    x <- rank(x)
+    (sum(names(x[which(x > (length(x) - n))]) %in% up) + 
+    sum(names(x[which(x < n)]) %in% down))  / (2*n)
+  }
+  exc <- apply(x, 2, f)
+  return(list(scores=as.vector(exc), up=up, down=down))  
+})
+
   
 
-ExpSpect$set("public", "excos", function(x, y, threshold=1.96, normalize=TRUE) {
+ExpSpect$set("public", "excos", function(x, y, threshold=1.96) {
   # coerce to numeric just in case
   dm <- matrix(as.numeric(x), ncol=ncol(x))
   colnames(dm) <- colnames(x)
@@ -60,10 +105,10 @@ ExpSpect$set("public", "excos", function(x, y, threshold=1.96, normalize=TRUE) {
   y <- as.numeric(y)
   names(y) <- y.nm
   
-  if(normalize) {
-    y <- (y-mean(y))/sd(y)
-    data <- (data-mean(data))/sd(data)
-  }  
+  #if(normalize) {
+  #  y <- (y-mean(y))/sd(y)
+  #  data <- (data-mean(data))/sd(data)
+  #}  
   # identify signature genes
   up <- names(y)[which(y > threshold)]
   up <- up[which(up %in% rownames(data))]
@@ -71,17 +116,37 @@ ExpSpect$set("public", "excos", function(x, y, threshold=1.96, normalize=TRUE) {
   down <- down[which(down %in% rownames(data))]
   # ensure that we only use gene ids common to both data and y 
   xset <- c(up, down)
-  if(length(xset) == 0) {
+  if(length(xset) < 2) {
     stop("No common gene ids between data matrix and UP and DOWN regulated genes in y")
   }
   
   # calculate the 'extreme cosine'
   exc <- t(data[xset,]) %*% y[xset]
-  return(list(excos=as.vector(exc), up=up, down=down))
+  return(list(scores=as.vector(exc), up=up, down=down))
 
 })
 
-  
+ExpSpect$set("public", "threshold", function(x, limit=0.01, maxit=1000000) {
+  conv <- FALSE
+  m <- mean(x)
+  c <- 0
+  while(!conv) {
+    c <- c+1
+    m.p <- m
+    m1 <- mean(x[which(x<m)])
+    m2 <- mean(x[which(x>m)])
+    m <- (m1 + m2)/2
+    if(abs(m-m.p) < limit){
+      conv=TRUE
+    }
+    if(c > maxit) {
+      warning("threshold alogorithm did not converge...returning best guess")
+      conv=TRUE
+    }
+  }
+  return(list(m=m, m1=m1, m2=m2))
+})
+
 ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, rescale=TRUE) {
   if(is.list(y)) {
     up <- y$up;
@@ -99,6 +164,12 @@ ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, re
       stop("No genes met threshold criteria.")
     }    
   }
+
+  up <- up[which(up %in% rownames(x))]
+  down <- down[which(down %in% rownames(x))]
+  if(length(up) == 0 || length(down) == 0) {
+    stop("No genes in up and/or down list found in rownames of data matrix.  Gene id mismatch?")
+  }    
   
   s_i <- apply(x, 2, function(xx) {
     # again, coercing to numeric just in case
@@ -140,7 +211,38 @@ ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, re
     s_i[s_i < 0] <- -(s_i[s_i < 0] / q)    
   }
   
-  return(s_i)
+  return(list(scores=s_i, up=up, down=down))  
+})
+
+ExpSpect$set("public", "fetchATC", function(drugs) {
+  codes <- read.table("http://www.ebi.ac.uk/Rebholz-srv/atc/public/ontologies/atc.owl", sep="\n", as.is=TRUE, header=FALSE)
+  res <- rep("", 2)
+  for(l in codes[,1]) {
+    if(length(grep("owl:Class.*/atc/.*>", l))) {
+      c <- gsub("<owl:Class.*/atc/(.*)>", "\\1", l)
+      c <- gsub("\\s", "", c)
+    }
+    if(length(grep("rdfs:label.*string>.*<", l))) {
+      d <- gsub('.*string\\"*>(.*?)<\\/.*', "\\1", l)
+      res <- rbind(res, c(c,tolower(d)))
+    }
+  }
+  entry <- rep("", 7)
+  atc <- entry
+  codes <- character()
+  for(i in 1:nrow(res)) {
+    ontology[nchar(res[i,1])] <- res[i,2]
+    if(nchar(res[i,1]) == 7) {
+      atc <- rbind(atc, ontology)
+      codes <- c(codes, res[i,1])
+    }
+  }
+  atc <- atc[-1,]
+  atc <- atc[,-c(2,6)]
+  rownames(atc) <- codes
+  colnames(atc) <- c("main", "sub1", "sub2", "sub3", "substance") 
+  
+  atc
 })
 
 

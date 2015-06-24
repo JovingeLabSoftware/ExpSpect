@@ -252,7 +252,6 @@ LINCS$set("public", "l1000Rows", function() {
 })
 
 LINCS$set("public", "l1000ids", function() {
-  library(hgu133plus2.db) # if I do not do this i get 'Error in as.list.default(hgu133plus2ENTREZID) :' 
   entrezids <- as.list(hgu133plus2ENTREZID)
   data(l1000Genes)
   entrezids_l1000 <- entrezids[which(entrezids %in% l1000Genes$EntrezGeneID)]
