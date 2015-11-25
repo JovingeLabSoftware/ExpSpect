@@ -12,12 +12,19 @@ Depends:
     hgu133plus2.db,
     RCurl,
     AnnotationDbi,
-    RJSONIO
+    RJSONIO,
+    dplyr,
+    tidyjson
 Description: Calculate protein specific biases in gene expression
 License: MIT
 Collate: 
     'ExpSpect.R'
     'LINCS.R'
+    'RcppExports.R'
+    'profiling.R'
 Suggests: knitr,
     testthat
 VignetteBuilder: knitr
+Imports: RcppParallel, Rcpp
+LinkingTo: RcppParallel, Rcpp
+SystemRequirements: GNU make

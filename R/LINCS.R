@@ -31,6 +31,10 @@
 #' @keywords data
 #' 
 #' 
+
+library(Biobase)
+library(GEOquery)
+
 LINCS <- R6Class("LINCS",
                  public = list(
                    dataFile = NA,
@@ -44,7 +48,7 @@ LINCS <- R6Class("LINCS",
                      if (!missing(dataFile)) {
                        self$setDataFile(dataFile)
                      } else {
-                       self$setDataFile('/mnt/lincs/zspc_n1328098x22268.gctx')         
+                       self$setDataFile('/mnt/lincs/gex_epsilon_n1429794x978.gctx')         
                      }
                      
                      if (!missing(infoFile)) {
@@ -122,6 +126,28 @@ LINCS$set("public", "setId", function(id=c('probeset', 'entrez')) {
     private$dataIsStale = TRUE;    
 })
 
+LINCS$set("public", "selectCell", function(celllines, ...) {
+  re <-  paste("(^", paste(celllines, sep="", collapse="$)|(^"), "$)", sep="")
+  cids <- self$cellInfo(sprintf('"cell_id":{"$regex":"%s"}', re))$cellid
+  cellids <- self$metadata(rows=4) 
+  ix <- which(self$metadata(rows=4) %in% cids)
+  if(length(ix) == 0) {
+    stop("No matching cell lines identified in dataset")
+  }
+  self$setCols(ix, ...)
+}) 
+
+
+LINCS$set("public", "selectFDA", function(...) {
+  fdadrugs <- self$fdaDrugs()
+  pertids <- self$metadata(rows=2) 
+  self$setCols(which(pertids %in% fdadrugs$pertid), ...)
+})
+
+LINCS$set("public", "selectL1000", function() {
+  rows <- lincs$l1000Rows()
+  self$setRows(self$l1000Rows(), reset=TRUE)
+})
 
 LINCS$set("public", "setCols", function(cols=NA, reset=FALSE) {
   if(length(cols)==1 && is.na(cols)) {
@@ -187,7 +213,11 @@ LINCS$set("public", "metadata", function(rows) {
 LINCS$set("private", "loadData", function(verbose=TRUE) {
   rows = private$rowset
   cols = private$colset
+  if(length(cols)==0 || length(rows)==0) {
+    stop("There are currently no active rows and/or columns selected")
+  }
   print("Loading data from file into memory, this may take a few minutes")
+  private$.data <- matrix(ncol=length(cols), nrow=length(rows))
   private$.data <- h5read(self$dataFile, "0/DATA/0/matrix", index=list(rows,cols))
   H5close()
 
@@ -206,6 +236,9 @@ LINCS$set("private", "loadData", function(verbose=TRUE) {
 LINCS$set("private", "loadMetadata", function() {
   cols = private$colset
   rows = self$metadataRows
+  if(length(cols)==0 || length(rows)==0) {
+    stop("There are currently no active rows and/or columns selected")
+  }
   private$.metadata <- h5read(self$infoFile, "0/DATA/0/matrix", index=list(1:rows, cols))
   H5close()
   colnames(private$.metadata) <- self$colnamesByIndex(cols)

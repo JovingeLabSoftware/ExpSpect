@@ -19,7 +19,6 @@ The expression data matrix is large (~120GB), and may be obtained using the s3cm
 ```
 # configure s3cmd with your keys
 s3cmd --configure
-
 # now get the data file.  takes 30-60 minutes with a fast data connection.
 s3cmd get  s3://data.lincscloud.org/l1000/level4/zspc_n1328098x22268.gctx
 s3cmd get  s3://data.lincscloud.org/l1000/metadata/inst.info
@@ -30,6 +29,7 @@ The instance metadata from LINCS is provided as tab delimited file (inst.info) w
 library(ExpSpect)
 # adjust path below as needed.
 lincs <- LINCS$new("/mnt/lincs/zspc_n1328098x22268.gctx")
+lincs <- LINCS$new("/mnt/lincs/gex_epsilon_n1429794x978.gctx")
 
 # Generate hdf5 version of info file.  Only needs to be done once.
 lincs$info2hdf5("/mnt/lincs/inst.info", "/desired/path/to/inst_info.gctx")
@@ -42,34 +42,39 @@ Now we are ready to begin.
 
 ### Feature reductions
 
-First we will extract some signatures of interest from the LINCS expression data.  First we will restrict our analysis to a single cell line.  
+First we will extract some signatures of interest from the LINCS expression data.  To begin we will restrict our analysis to a a single cell line.  Latest information on the cell lines profiled in the LINCS expression data set can be retrieved as follows.
 
 ```{r, eval=FALSE}
-ha1e <- lincs$cellInfo('"cell_id":"HA1E"') 
-
+View(lincs$cellInfo())
 ```
 
-The ExpSpect package provides a function to retrieve meta data from the info file. Here we extract the cell line identifier for each instance:
+We can then restrict our data set to one or more cell lines of interest as well as restricting our analysis to clinically relevant (i.e., FDA approved) drugs.  Finally, we will restrict our analysis to just the L1000 landmark genes that were directly measured by the LINCS gene expression assays.  All of these filters can be applied using convenience functions provided by the LINCS class.  Because there are tens of thousands of rows and over 1 million columns of data to filter, the following steps each take a little time (for example, on a c4.2xlarge AWS instance the following steps take a total of 42 seconds).
 
 ```{r, eval=FALSE}
-cellids <- lincs$metadata(rows=4) 
-ixnorm <- which(cellids %in% ha1e$cellid)
-lincs$setCols(ixnorm, reset=TRUE)
+lincs$selectCell(c("HA1E"))
+lincs$selectCell(c("FIBRNPC"))
+lincs$selectFDA()
+lincs$selectL1000()
 ```
 
-Next let us restrict the analysis to instances where the perturbagen was a clinically relevant drug.  Again, the `ExpSpect` package contains a utility function that identifies drugs among the LINCS sperturbagens that are FDA approved for one or more indications.  Here we will identify the relevant `pertids` for the normal samples from above and extract the corresponding expression data for just the landmark (l1000) genes (as provided by the l1000Rows() method illustrated below).  Loading the data may take several minutes depending on size of the extracted data matrix.
+
+Internally these convenience functions call `metadata`, `setRows`, and `setCols` methods of the LINCS class. These methods are public and you can call them yourself to set other filters on the dataset.  For example, you could achieve the equivalent of `selectCell(c("FBRNPC"))` like this:
 
 ```{r, eval=FALSE}
-fdadrugs <- lincs$fdaDrugs()
-pertids <- lincs$metadata(rows=2)
-ixfda <- which(pertids %in% fdadrugs$pertid)
-lincs$setCols(ixfda)
-rows <- lincs$l1000Rows()
-lincs$setRows(rows)
+cids <- lincs$cellInfo('"cell_id":"FIBRNPC"')$cellid
+lincs$setCols(which(lincs$metadata(rows=4) %in% cids))
+```
 
-# 1778 x 6208 matrix ... this will take a few minutes...
+Note that by default `setCols` and `setRows` (as well as `selectFDA` and `selectCell` that utilize them) filters based on the currently selected set of columns and rows.  The `metadata` method returns only data for the currently selected set of columns, so this should be intuitive when creating a new filter based on values from `metadata`.  If for some reason you want to restore the full set of columns or rows before applying your filter, use the reset=`TRUE` option for `setCols` and `setRows` (and then ensure the column or row indexes you supply relate to the full dataset, not just any currently selected rows or columns).  The `selectL1000` option, in contrast, resets any current filter on the data rows since it is assumed you want all of the L1000 genes.
+
+You can now extract the data matrix for the selected genes and instances.  Extracting the million or so datapoints for this example takes less than a minute on our test server.  Extracting larger datasets will of course take longer.
+
+```{r, eval=FALSE}
 datamatrix <- lincs$data()
 ```
+
+If you plan to use a given data extract repeatedly, it is a good idea to save the resulting datamatrix to disk as an `.rda` file as this will be much faster to load than re-extracting the data (due to the fact that the many file seeks required to extract your selected data from the gctx file is time consuming given its size despite the inherent speed of the `rhdf5` package).  
+
 
 ### Reannotation
 
@@ -79,28 +84,266 @@ This step is not necessary if you are going to be interrogating this data with g
 
 ```{r, eval=FALSE}
 # takes a couple of minutes
-datamatrix_entrez <- lincs$summarizeGenes(datamatrix, FUN=mean)
+datamatrix_entrez <- lincs$summarizeGenes(lincs$data(), FUN=mean)
 ```
 
-Converting to rank space is a brute force method for normalizing data.  While throwing away alot of information, it also eliminates the effects of any sources of error that effect only the magnitude of the data, not its order.  (For example, if a particular lab technician systematically added twice the input RNA s/he was supposed to, converting the resulting data to ranks column wise will remove that effect).  In particular, gene signature analysis often relies on a KS type statistic that is concerned only with the position of signatures genes in an ordered list, not the measured magnitude of those genes.  Converting our data to rank space is simple enough:
+Next we will give an example of calculating enrichment scores based on the data we extracted above.  In this example, we will be comparing the imputed LINCS fold changes with pre-processed data from GEO.  The data we will be using was produced using the Affymetrix HG U133 Plus 2.0 arrays (GPL570), so we do not need to summarize to a different common gene id.  Instead we can use the datamatrix object from above directly (skipping the summarizeGenes step). 
+
+## Identifying drug signatures with ExpSpect: Sirolimus example
 
 ```{r, eval=FALSE}
-rankmatrix_entrez <- apply(datamatrix_entrez, 2, order, decreasing=TRUE)
+#library(GEOquery)
+#sirolim <- getGEO('GSE22224', destdir="/mnt/lincs/GEO")[[1]]
+
+data("fdadrugs") # maps lincs pert_iname to common drug name as recognized by FDA
+data("ha1e") # pre-extracted LINCS object, restricted to ha1e cell line, L1000 genes, FDA approved drugs
+data("sirolim") # sirolimus data obtained from GEO
+data <- exprs(sirolim)
+
+# identify subgroups of interest
+treat <-  grep("SRL", pData(sirolim)$characteristics_ch1.2)
+ctrl <-  grep("none", pData(sirolim)$characteristics_ch1.2)
+
+#calculate the scores.  when using permutation, this takes a few minutes
+expct <- ExpSpect$new()
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'excount', perm=TRUE, iterations=1000, parallel=TRUE)
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'excos', perm=TRUE, iterations=1000)
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'cmap', perm=FALSE)
+
+# rennotate perturbagens to common drug names and plot
+ixm<- match(lincs$metadata()[2,], fdadrugs$pert_id)
+expct$labels <- fdadrugs$pert_iname[ixm]
+
+expct$plot(aggregate=TRUE, FUN=max, squelch=3, highlight="irolimus", main="ExpSpect analysis of siroliums exposed PBMCs")
+
 ```
 
-This dataset is now ready for interrogation against signatures of interest (such as gene expression profiles obtained from GEO).  
-
-Next we will give an example of calculating enrichment scores based on the data we extracted above.  In this example, we will be comparing the imputed LINCS fold changes with pre-processed data from GEO.  The data we will be using was produced using the Affymetrix HG U133 Plus 2.0 arrays (GPL570), so we do not need to summarize to a different common gene id.  Instead we can use the datamatrix object from above directly (skipping the summarizeGenes step). NOTE: This example requires the GEOquery package from Bioconductor to fetch gene expression data from GEO).
-
-## Identifying drug signatures with ExpSpect
-
+## Identifying drug signatures with ExpSpect: Asthma example
 
 ```{r, eval=FALSE}
 library(GEOquery)
-GSE39339 <- getGEO('GSE39339', destdir="/mnt/lincs/GEO")
-# grab the expression data for the samples of interest
-GSE39339 <- exprs(GSE39339[[1]])[,1:8]
+asthma <- getGEO('GSE16032', destdir="/mnt/lincs/GEO")[[1]]
+save(asthma, file="asthma.rda")
+load("asthma.rda")
+data("fdadrugs") # maps lincs pert_iname to common drug name as recognized by FDA
+
+
+
+# identify subgroups of interest
+treat <-  grep("Acute", pData(asthma)$title)
+ctrl <-  grep("Conv", pData(asthma)$title)
+data <- exprs(asthma)
+#calculate the scores.  when using permutation, this takes a few minutes
+
+data("HA1E") # pre-extracted LINCS object, restricted to ha1e cell line, L100 genes, FDA approved drugs
 expct <- ExpSpect$new()
-cor <- expct$calcScores(lincs, GSE39339[,5:8], GSE39339[,1:4], 'excos')
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'excount', perm=TRUE, parallel=TRUE, iterations=1000)
+
+# reannotate perturbagens to common drug names and plot
+ixm<- match(lincs$metadata()[2,], fdadrugs$pert_id)
+expct$labels <- fdadrugs$pert_iname[ixm]
+
+f <- function(x) {
+  return(quantile(x[which(x>0)], 0.8))
+}
+sc <- expct$scores
+sc <- expct$scores[tt]
+lb <- expct$labels[tt]
+
+expct$plot(aggregate=TRUE, FUN=f, squelch=3, labels=10, highlight="rolimus", main="ExpSpect analysis of asthmatic patients")
+ix <- match(expct$labels, atc[,'substance'])
+expct$labels <- atc[ix, 3]
+
 
 ```
+
+## Identifying drug signatures with ExpSpect: Paclitaxel example
+
+```{r, eval=FALSE}
+library(GEOquery)
+paclitax <- getGEO('GSE50830', destdir="/mnt/lincs/GEO")[[1]]
+
+data("fdadrugs") # maps lincs pert_iname to common drug name as recognized by FDA
+data("ha1e") # pre-extracted LINCS object, restricted to ha1e cell line, L1000 genes, FDA approved drugs
+
+# identify subgroups of interest
+treat <-  grep("PTX", pData(paclitax)$title)
+ctrl <-  grep("control", pData(paclitax)$title)
+
+treat <- 1:3
+ctrl <- 7:9
+
+data <- exprs(paclitax)
+#calculate the scores.  when using permutation, this takes a few minutes
+expct <- ExpSpect$new()
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'excount', perm=TRUE, iterations=10, parallel=TRUE)
+
+# rennotate perturbagens to common drug names and plot
+ixm<- match(lincs$metadata()[2,], fdadrugs$pert_id)
+expct$labels <- fdadrugs$pert_iname[ixm]
+ix <- match(expct$labels, atc[,'substance'])
+expct$labels <- atc[ix, 4]
+
+f <- function(x) {
+  return(quantile(x[which(x>0)], 0.8))
+}
+
+expct$plot(aggregate=TRUE, FUN=max, squelch=3, labels=10, highlight="paclitax", main="ExpSpect analysis of paclotaxel exposed cell lines")
+
+```
+
+## Notes
+
+The following code snippet will create Rdata files containing lincs objects for each cell id in the LINCS data file.
+
+```{r, eval=FALSE}
+for(i in unlist(lincs$cellInfo()$cellid)) {
+  print(i)
+  lincs <- LINCS$new("/mnt/lincs/zspc_n1328098x22268.gctx")
+  lincs$setInfoFile("/mnt/lincs/inst_info.gctx")
+  tryCatch({
+    lincs$selectCell(c(i))
+    lincs$selectFDA()
+    lincs$selectL1000()
+    tt <- lincs$data() # force data load into memory. larger Rdata file but data available immediately. 
+    save(lincs, file=paste('data/', i, '.rda', sep=""))
+  }, warning = function(w) {
+      print(w)
+  }, error = function(e) {
+      print(e)
+  })
+}
+
+```
+GSE13849
+
+## Identifying drug signatures with ExpSpect: JIA example
+
+```{r, eval=FALSE}
+library(GEOquery)
+jia <- getGEO('GSE13849', destdir="/mnt/lincs/GEO")[[1]]
+save(jia, file="data/jia.rda")
+
+data("fdadrugs") # maps lincs pert_iname to common drug name as recognized by FDA
+data("HA1E") # pre-extracted LINCS object, restricted to ha1e cell line, L1000 genes, FDA approved drugs
+
+# identify subgroups of interest
+treat <-  grep("RF+", pData(jia)$title)
+ctrl <-  grep("CTRL", pData(jia)$title)
+
+data <- exprs(jia)
+#calculate the scores.  when using permutation, this takes a few minutes
+expct <- ExpSpect$new()
+expct$calcScores(lincs$data(), data[,treat], data[,ctrl], 'excount', perm=TRUE, iterations=200)
+
+# reannotate perturbagens to common drug names and plot
+ixm<- match(lincs$metadata()[2,], fdadrugs$pert_id)
+expct$labels <- fdadrugs$pert_iname[ixm]
+
+f <- function(x) {
+  return(quantile(x[which(x>0)], 0.75))
+}
+
+hl <- atc[grep("non-ster", atc[,3]),5]
+hl <- c(hl, 'carprofen')
+expct$plot(aggregate=TRUE, FUN=f, squelch=5, labels=20, highlight=hl, main="ExpSpect analysis of NSAID exposed PBMCs")
+ix <- match(expct$labels, atc[,'substance'])
+expct$labels <- atc[ix, 3]
+expct$labels[which(atc[ix,5] %in% hl)] <- "non-steroidal anti-inflammatories"
+
+```
+
+Plot plates
+
+```{r, eval=FALSE}
+
+library(ggplot2)
+
+lincs <- LINCS$new("../q2norm_n1328098x22268.gctx")
+md <- lincs$metadata()
+plate <- gsub("_X.*", "", md['rna_plate',])
+
+col <- rep(1:36,36)[1:length(res)]
+row <- rep(35:1, each=36)[1:length(res)]
+
+filter <- function(field, values) {
+   res <- tapply(tolower(md[field,]), INDEX = plate, FUN = function(x) { sum(x %in% tolower(values)) > 1})  
+}
+
+filter2 <- function(field) {
+   res <- tapply(tolower(md[field,]), INDEX = plate, FUN = function(x) { length(unique(x)) })  
+}
+
+data <- data.frame(val=filter("pert_type", c("ctl_vehicle", "ctl_vector", "ctl_untreat")), row=row, col=col)
+data <- data.frame(val=factor(filter2("pert_dose")), row=row, col=col)
+ 
+ggplot(data=data, aes(x=col, y=row, col)) +
+    geom_point(aes(fill=val), size=5, pch=21, color="gray") +
+    labs(title="Number of dose levels on each plate") +  
+    scale_fill_manual(values = colorRampPalette(colors=c("gray", "orange"))(length(unique(data$val))))
+    
+
+#plate <- gsub("_X.*", "", md['rna_plate',])
+#well <- md['det_well',]
+#well <- gsub(",.*", "", well)
+#cell <- md['cell_id',]
+#pert <- md['pert_desc',]
+
+#plateRow <- strtoi(sapply(substr(well, 1, 1), charToRaw), base=16) - 64
+#plateRow <- match(substr(well, 1, 1), LETTERS)
+#plateCol <- as.numeric(substr(well, 2, 3))
+
+#p <- plate[1]
+
+#plt <- matrix(0, nrow=16, ncol=24)
+#ix <- which(plate == p)
+#ixx <- which(pert[ix] == "DMSO")
+
+# populate the plate
+#for(i in ix) {
+#  plt[plateRow[i], plateCol[i]] <- pert[i]
+#}
+
+```
+
+Fetch is_gold data and append to metadata.
+
+``` {r}
+library(httr)
+
+url <- "http://api.lincscloud.org/a2/siginfo?q={%22is_gold%22:%22true%22}&user_key=lincsdemo&f={%22distil_id%22:1}&c=TRUE"
+count <- content(GET(url))$count
+
+url <- "http://api.lincscloud.org/a2/siginfo?q={%22is_gold%22:%22true%22}&user_key=lincsdemo&f={%22distil_id%22:1}&l=1000&sk="
+d <- numeric(0)
+
+for(s in seq(0,count, 1000)) {
+  res <- GET(paste(url, s, sep=""))
+  d <- c(d, unlist(content(res, as = "parsed")))
+  print(s)
+}
+
+ix <- which(names(d) == "_id")
+d <- d[-ix]
+is_gold <- colnames(md) %in% d
+md['is_gold',] <- is_gold
+saveRDS(md, "data/metadata.rds")
+
+
+```
+
+get l1000 ids and level 3 ids
+
+``` {r}
+
+l1000_ps <- gsub(" ", "", h5read("../gex_epsilon_n1429794x978.gctx", "/0/META/ROW/id"))
+l3_ps <- gsub(" ", "", h5read("../q2norm_n1328098x22268.gctx", "/0/META/ROW/id"))
+ix <- which(l3_ps %in% l1000_ps)
+# it's the first 978 rows!  yay!
+
+```
+
+data <- h5read("../q2norm_n1328098x22268.gctx", "0/DATA/0/matrix", index=list(c(1:978), c(1:100)))
+
+
+

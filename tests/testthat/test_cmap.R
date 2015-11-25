@@ -21,6 +21,8 @@ test_that("Values match those from CMAP website", {
   exps <- ExpSpect$new()
   scores <- exps$cmap(cmap_test, list(up=up, down=down))
   expect_vecs_equal(scores, c(0.0, 0.0, 0.0, -0.8086089, -1.0, 0.0, -0.6515715, 0.0, 0.0, -0.8971877))
+  scores <- exps$cmap(cmap_test, cmap_test[,1], threshold=1.5)
+  expect_vecs_equal(scores, c(-1, -0.44022, -0.45385, -0.49065, 0.93272, 1, 0.90563, -0.12315, 0.685, 0))
 })
           
           

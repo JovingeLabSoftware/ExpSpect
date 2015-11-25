@@ -30,101 +30,195 @@
 #' 
 ExpSpect <- R6Class("ExpSpect",
   public = list(
-    calcScores = function(data, treated, untreated, method=c('cmap', 'excos', 'excount'), ...) {
-      treated <- apply(treated, 1, mean)
-      untreated <- apply(untreated, 1, mean)
-      treated <- (treated - mean(treated))/sd(treated)
-      untreated <- (untreated - mean(untreated))/sd(untreated)
-
-      exp_r <- treated-untreated
-      exp_r <- (exp_r - mean(exp_r)) / sd(exp_r)
-      cl <- call(paste('self[["', method, '"]](x=data, y=exp_r, ...)', sep=""))
-      eval(parse(text=cl))
-     },
-     permScores = function(x, y, method=c('cmap', 'excos', 'excount'), sample=0.2, i=100) {
-       scores <- numeric();
-       if(sample > 0.5) {
-         warning("sample must be <= 0.5.  Using 0.5.")
-       }
-       smp <- floor(sample * ncol(y))
-       for(i in 1:i) {
-        print(i)
-        s <- sample(1:ncol(y), ncol(y))
-        treated <- s[1:smp]
-        untreated <- s[(smp+1):(2*smp)]
-        data <- data[sample(1:nrow(data), nrow(data)),]
-        scores <- rbind(scores, self$calcScores(x, data[,treated], data[,untreated], method)$scores)
-      } 
-      scores
-     }
+    scores = NA,
+    labels = NA,
     
+    calcScores = function(x, 
+                          treated, 
+                          control, 
+                          method = c('cmap', 'excos', 'excount'), 
+                          returnScores = FALSE,
+                          perm = FALSE,
+                          parallel = FALSE,
+                          ...) {
+      scores <- private$.score(x, treated, control, method, perm, parallel, ...)
+
+      self$scores <- scores
+      self$labels <- colnames(x)
+      if(returnScores) {
+        return(scores)
+      }      
+     }
+  ),
+  private = list(
+    .score = function(x, 
+                      treated,
+                      control, 
+                      method, 
+                      perm,
+                      parallel,
+                      ...) {
+      cl <- call(paste('self[["', method, '"]](x=x, treated=treated, control=control, parallel=parallel, perm=perm, ...)', sep=""))  
+      eval(parse(text=cl))
+    },
+    pb = NA,
+    pb.init = function(max) {
+      private$pb = txtProgressBar(max=max, style=3, width=30)
+    },
+    pb.step = function() {
+      setTxtProgressBar(private$pb, getTxtProgressBar(private$pb) + 1)
+    },
+    pb.close = function() {
+      close(private$pb)
+    }
   )
 )
 
-ExpSpect$set("public", "excount", function(x, y, n = 100
-                                           ) {
-  # coerce to numeric just in case
-  y <- y[which(names(y) %in% rownames(x))]
-  dm <- matrix(as.numeric(x), ncol=ncol(x))
-  colnames(dm) <- colnames(x)
-  rownames(dm) <- rownames(x)
-  data <- dm
-  y.nm <- names(y)
-  y <- as.numeric(y)
-  names(y) <- y.nm
-  
-  #if(normalize) {
-  #  y <- (y-mean(y))/sd(y)
-  #  data <- (data-mean(data))/sd(data)
-  #}  
-  # identify signature genes
-  up <- names(y)[which(rank(y) > (length(y)-n))]
-  up <- up[which(up %in% rownames(data))]
-  down <- names(y)[which(rank(y) < n)]
-  down <- down[which(down %in% rownames(data))]
-  
-  # calculate the 'extreme count'
-  f <- function(x) {
-    x <- rank(x)
-    (sum(names(x[which(x > (length(x) - n))]) %in% up) + 
-    sum(names(x[which(x < n)]) %in% down))  / (2*n)
+#
+# FUN must be a function that takes the following arguments:
+#   x:        a matrix of reference perturbation data such as extracted from LINCS
+#   treated:  a matrix of gene expression data for "treated" samples 
+#   control:  a matrix of gene expression data for "control" samples 
+#   ...:      optional additional arguments that will be passed through to FUN
+#
+ExpSpect$set("private", ".perm", function(x, treated, control, FUN, iterations=100, parallel=FALSE, sample=0.5, ...) {
+  exc <- FUN(x, treated, control, ...)
+  data <- cbind(treated, control)
+  scores <- numeric();
+  if(sample > 0.5) {
+    warning("sample must be <= 0.5.  Using 0.5.")
+    sample <- 0.5
   }
-  exc <- apply(x, 2, f)
-  return(list(scores=as.vector(exc), up=up, down=down))  
+  smp <- floor(sample * ncol(data))
+  if(parallel) {
+    cat("Permuting in parallel (progress updates not available)...\n")
+    require(parallel)
+    f <- function(i) {
+      s <- sample(1:ncol(data), ncol(data))
+      FUN(x, 
+          data[, s[1:smp]], 
+          data[, s[(smp+1):(2*smp)]], 
+          ...)
+    }  
+    scores <- mclapply(1:iterations, f, mc.cores=detectCores(), mc.preschedule=FALSE)
+    print("...complete.")
+    scores <- matrix(unlist(scores), nrow=iterations, byrow = TRUE)
+  } else {
+    cat("Permuting...")
+    private$pb.init(iterations)
+    for(i in 1:iterations) {
+      private$pb.step();
+      s <- sample(1:ncol(data), ncol(data))
+      scores <- rbind(scores, FUN(x, 
+                                  data[, s[1:smp]], 
+                                  data[, s[(smp+1):(2*smp)]], 
+                                  ...))
+    } 
+    private$pb.close()
+  }
+  exc <- apply(sweep(scores, 2, exc, '>'), 2, sum) / iterations
+  exc <- -log2(exc)
+  ix <- which(is.infinite(exc))
+  if(length(ix)) {
+    exc[ix] <- ceiling(max(exc[-ix]))    
+  }
+  exc
 })
 
-  
 
-ExpSpect$set("public", "excos", function(x, y, threshold=1.96) {
-  # coerce to numeric just in case
-  dm <- matrix(as.numeric(x), ncol=ncol(x))
-  colnames(dm) <- colnames(x)
-  rownames(dm) <- rownames(x)
-  data <- dm
-  y.nm <- names(y)
-  y <- as.numeric(y)
-  names(y) <- y.nm
+ExpSpect$set("public", "excount", function(x, 
+                                           treated, 
+                                           control, 
+                                           n=100,
+                                           perm = FALSE, 
+                                           parallel=FALSE, 
+                                           iterations=100, 
+                                           sample=0.5) {
   
-  #if(normalize) {
-  #  y <- (y-mean(y))/sd(y)
-  #  data <- (data-mean(data))/sd(data)
-  #}  
-  # identify signature genes
+  treated <- treated[which(rownames(treated) %in% rownames(x)),]
+  control <- control[which(rownames(control) %in% rownames(x)),]
+  x <- apply(x, 2, rank)    
+    
+  if(perm) {
+    exc <- private$.perm(x, 
+                         treated, 
+                         control, 
+                         private$.excount, 
+                         sample=sample, 
+                         parallel=parallel,
+                         iterations=iterations, 
+                         n=n)
+  } else {
+    exc <- private$.excount(x, treated, control, n)
+  }
+  exc  
+})
+
+ExpSpect$set("private", ".excount", function(x, treated, control, n) {
+  tr <- apply(treated, 1, mean)
+  ct <- apply(control, 1, mean)
+  y <- rank(tr / ct)
+  
+  up <- names(y)[which(y > (length(y)-n))]
+  down <- names(y)[which(rank(y) < n)]  
+  f <- function(x) {
+    (sum(names(x[which(x > (length(x) - n))]) %in% up) + 
+       sum(names(x[which(x < n)]) %in% down))  / (2*n)
+  }
+  exc <- apply(x, 2, f)    
+  exc
+})
+
+
+
+ExpSpect$set("private", ".excos", function(x, treated, control, threshold) {
+  tr <- apply(treated, 1, mean)
+  ct <- apply(control, 1, mean)
+  y <- log2(tr / ct)
+  y <- (y-median(y))/sd(y)
   up <- names(y)[which(y > threshold)]
   up <- up[which(up %in% rownames(data))]
   down <- names(y)[which(y < -threshold)]
   down <- down[which(down %in% rownames(data))]
-  # ensure that we only use gene ids common to both data and y 
-  xset <- c(up, down)
-  if(length(xset) < 2) {
-    stop("No common gene ids between data matrix and UP and DOWN regulated genes in y")
+  if(length(up) < 2 || length(down) < 2) {
+    warning("too few genes met threshold...returning NA")
+    return(rep(NA, ncol(x)))
   }
-  
-  # calculate the 'extreme cosine'
-  exc <- t(data[xset,]) %*% y[xset]
-  return(list(scores=as.vector(exc), up=up, down=down))
-
+  xset <- c(up, down)
+  exc <- t(x[xset,]) %*% y[xset]
+  exc[,1]
 })
+
+  
+ExpSpect$set("public", "excos", function(x, 
+                                           treated, 
+                                           control, 
+                                           threshold=1.96,
+                                           perm = FALSE, 
+                                           iterations=100, 
+                                           parallel=FALSE,
+                                           sample=0.5) {  
+
+  
+  treated <- treated[which(rownames(treated) %in% rownames(x)),]
+  control <- control[which(rownames(control) %in% rownames(x)),]
+  
+  if(perm) {
+    exc <- private$.perm(x, 
+                         treated, 
+                         control, 
+                         private$.excos, 
+                         sample=sample, 
+                         parallel=parallel,
+                         iterations=iterations,
+                         threshold=threshold)
+  } else {
+    exc <- private$.excos(x, treated, control)
+  }
+  exc
+})
+
+
 
 ExpSpect$set("public", "threshold", function(x, limit=0.01, maxit=1000000) {
   conv <- FALSE
@@ -147,32 +241,57 @@ ExpSpect$set("public", "threshold", function(x, limit=0.01, maxit=1000000) {
   return(list(m=m, m1=m1, m2=m2))
 })
 
-ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, rescale=TRUE) {
-  if(is.list(y)) {
-    up <- y$up;
-    down <- y$down;
+ExpSpect$set("public", "cmap", function(x, 
+                                         treated, 
+                                         control, 
+                                         threshold=1.96,
+                                         perm = FALSE, 
+                                         iterations=100, 
+                                         sample=0.5,
+                                         parallel=FALSE, 
+                                         rescale=TRUE) {  
+  
+  
+  treated <- treated[which(rownames(treated) %in% rownames(x)),]
+  control <- control[which(rownames(control) %in% rownames(x)),]
+  
+  if(perm) {
+    exc <- private$.perm(x, 
+                         treated, 
+                         control, 
+                         private$.cmap, 
+                         sample=sample, 
+                         iterations=iterations,
+                         threshold=threshold,
+                         parallel=parallel,
+                         rescale=rescale)
   } else {
-    # sometimes imported data comes accross as character instead of numeric, will ensure numeric...
-    names <- names(y)
-    y <- as.numeric(y)
-    if(normalize) {
-      y <- (y-mean(y))/sd(y)
-    }
-    up <- names[which(y > threshold)]
-    down <- names[which(y < -threshold)]
-    if(length(up) == 0 || length(down) == 0) {
-      stop("No genes met threshold criteria.")
-    }    
+    exc <- private$.cmap(x, treated, control, threshold, rescale=rescale)
   }
+  exc
+})
 
+ExpSpect$set("private", ".cmap", function(x, treated, control, threshold=1.96, normalize=TRUE, rescale=TRUE) {
+  names <- rownames(treated)
+  
+  tr <- apply(treated, 1, mean)
+  ct <- apply(control, 1, mean)
+
+  y <- tr/ct
+  y <- (y-mean(y))/sd(y)
+  
+  
+  up <- names[which(y > threshold)]
+
+  down <- names[which(y < -threshold)]
   up <- up[which(up %in% rownames(x))]
   down <- down[which(down %in% rownames(x))]
   if(length(up) == 0 || length(down) == 0) {
-    stop("No genes in up and/or down list found in rownames of data matrix.  Gene id mismatch?")
+    return(rep(0, ncol(x)))
+    warn("No up and/or down regulated genes identified.  Returning 0 as cmap scores.")
   }    
   
   s_i <- apply(x, 2, function(xx) {
-    # again, coercing to numeric just in case
     ix <- sort(as.numeric(xx), index.return=TRUE)$ix
     xx <- names(xx)[ix]
     t_u <- length(up)
@@ -210,12 +329,12 @@ ExpSpect$set("public", "cmap", function(x, y, threshold=1.96, normalize=TRUE, re
     s_i[s_i > 0] <- s_i[s_i > 0] / p
     s_i[s_i < 0] <- -(s_i[s_i < 0] / q)    
   }
-  
-  return(list(scores=s_i, up=up, down=down))  
+  return(s_i)  
 })
 
 ExpSpect$set("public", "fetchATC", function(drugs) {
   codes <- read.table("http://www.ebi.ac.uk/Rebholz-srv/atc/public/ontologies/atc.owl", sep="\n", as.is=TRUE, header=FALSE)
+  data(atc)
   res <- rep("", 2)
   for(l in codes[,1]) {
     if(length(grep("owl:Class.*/atc/.*>", l))) {
@@ -240,9 +359,54 @@ ExpSpect$set("public", "fetchATC", function(drugs) {
   atc <- atc[-1,]
   atc <- atc[,-c(2,6)]
   rownames(atc) <- codes
-  colnames(atc) <- c("main", "sub1", "sub2", "sub3", "substance") 
-  
+  colnames(atc) <- c("main", "sub1", "sub2", "sub3", "substance")
   atc
 })
+
+ExpSpect$set("public", "plot", function(squelch = 7, highlight = NA, labels=10, aggregate=FALSE, FUN=max, palette=rainbow, ...) {
+  drugs <- tolower(gsub(" .*", "", names(self$scores)))
+  
+  if(aggregate) {
+    data <- tapply(self$scores, self$labels, FUN)
+    ix <- sort(data, index.return=TRUE)$ix
+    data <- data[ix]
+  } else {
+    data <- self$scores
+    names(data) <- self$labels
+  }
+
+  col <- rep(NA, length(data))
+  if(length(highlight) == 1) {
+    col[grep(highlight, names(data))] <- 'red'    
+  } else  {
+    col[which(names(data) %in% highlight)] <- 'red'        
+  }
+  
+  par(mgp=c(3,.5,0), mar=c(8,3,3,0))
+  barplot(data**squelch, col='orange', border='orange',  space = 0, width=1, names=NA, xlab="drug", ylab="ExpSpect Score", axes=FALSE, ...) 
+  par(new=TRUE)
+  barplot(data**squelch, col=col, border=col,  names=NA, xlab="drug", width=1, space=0, ylab="ExpSpect Score", axes=FALSE, ...) 
+  
+  ix <- which(data >= sort(data, decreasing = TRUE)[labels])
+  ax <- ix
+  spacing <- ix[-length(ix)] - ix[2:length(ix)] > -10
+  ax[which(spacing)] <- ax[which(spacing)] - (0.01 * length(data))
+  text(x = ax, par("usr")[3], labels = names(data)[ix], adj=c(0,0), srt = 290, cex=0.6, xpd = TRUE)
+  axis(2, cex.axis=0.7)
+})
+
+# mmatch  -  find all ocurrences of the first argument in the second 
+# returns a dataframe with columns comprised of elements of x and indices of table
+#
+mmatch <- function(x, table) {
+  f <- function(a, b) { 
+    if(a %in% b) { 
+      data.frame(element=a, index=which(b == a), stringsAsFactors=FALSE) 
+    } else { 
+      data.frame(element=a, index=NA)
+    }
+  }
+  do.call(rbind, lapply(x, f, table))
+}
 
 
