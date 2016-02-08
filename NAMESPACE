@@ -1,7 +1,4 @@
 export(ExpSpect)
 export(LINCS)
-useDynLib(ExpSpect)
 importFrom(R6,R6Class)
 importFrom(AnnotationDbi, as.list)
-importFrom(Rcpp, sourceCpp)
-importFrom(RcppParallel, RcppParallelLibs)

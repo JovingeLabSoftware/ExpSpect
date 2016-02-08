@@ -150,7 +150,7 @@ sc <- expct$scores
 sc <- expct$scores[tt]
 lb <- expct$labels[tt]
 
-expct$plot(aggregate=TRUE, FUN=f, squelch=3, labels=10, highlight="rolimus", main="ExpSpect analysis of asthmatic patients")
+expct$plot(aggregate=TRUE, FUN=f, squelch=5, labels=20, highlight=NA, main="ExpSpect analysis of asthmatic patients")
 ix <- match(expct$labels, atc[,'substance'])
 expct$labels <- atc[ix, 3]
 

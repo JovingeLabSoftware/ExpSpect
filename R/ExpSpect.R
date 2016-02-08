@@ -116,7 +116,7 @@ ExpSpect$set("private", ".perm", function(x, treated, control, FUN, iterations=1
     } 
     private$pb.close()
   }
-  exc <- apply(sweep(scores, 2, exc, '>'), 2, sum) / iterations
+  exc <- (apply(sweep(abs(scores), 2, abs(exc), '>='), 2, sum) + 1) / (iterations + 1)
   exc <- -log2(exc)
   ix <- which(is.infinite(exc))
   if(length(ix)) {
@@ -177,16 +177,22 @@ ExpSpect$set("private", ".excos", function(x, treated, control, threshold) {
   y <- log2(tr / ct)
   y <- (y-median(y))/sd(y)
   up <- names(y)[which(y > threshold)]
-  up <- up[which(up %in% rownames(data))]
+  up <- up[which(up %in% rownames(x))]
   down <- names(y)[which(y < -threshold)]
-  down <- down[which(down %in% rownames(data))]
+  down <- down[which(down %in% rownames(x))]
   if(length(up) < 2 || length(down) < 2) {
     warning("too few genes met threshold...returning NA")
     return(rep(NA, ncol(x)))
   }
   xset <- c(up, down)
-  exc <- t(x[xset,]) %*% y[xset]
-  exc[,1]
+  
+  A <- x[xset,]
+  B <- y[xset]
+  exc <- apply(A, MARGIN = 2, function(a) {
+    a %*% B / sqrt(a %*% a * B %*% B)
+  })
+  
+  exc
 })
 
   
@@ -213,7 +219,7 @@ ExpSpect$set("public", "excos", function(x,
                          iterations=iterations,
                          threshold=threshold)
   } else {
-    exc <- private$.excos(x, treated, control)
+    exc <- private$.excos(x, treated, control, threshold=threshold)
   }
   exc
 })

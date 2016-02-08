@@ -20,11 +20,6 @@ License: MIT
 Collate: 
     'ExpSpect.R'
     'LINCS.R'
-    'RcppExports.R'
-    'profiling.R'
 Suggests: knitr,
     testthat
 VignetteBuilder: knitr
-Imports: RcppParallel, Rcpp
-LinkingTo: RcppParallel, Rcpp
-SystemRequirements: GNU make
