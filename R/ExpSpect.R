@@ -100,7 +100,7 @@ ExpSpect$set("private", ".perm", function(x, treated, control, FUN, iterations=1
           data[, s[(smp+1):(2*smp)]], 
           ...)
     }  
-    scores <- mclapply(1:iterations, f, mc.cores=detectCores(), mc.preschedule=FALSE)
+    scores <- mclapply(1:iterations, f, mc.cores=detectCores(), mc.preschedule=TRUE)
     print("...complete.")
     scores <- matrix(unlist(scores), nrow=iterations, byrow = TRUE)
   } else {
@@ -116,12 +116,10 @@ ExpSpect$set("private", ".perm", function(x, treated, control, FUN, iterations=1
     } 
     private$pb.close()
   }
+  
+  # any NA scores should be set to 0...
+  scores[is.na(scores)] <- 0
   exc <- (apply(sweep(abs(scores), 2, abs(exc), '>='), 2, sum) + 1) / (iterations + 1)
-  exc <- -log2(exc)
-  ix <- which(is.infinite(exc))
-  if(length(ix)) {
-    exc[ix] <- ceiling(max(exc[-ix]))    
-  }
   exc
 })
 
